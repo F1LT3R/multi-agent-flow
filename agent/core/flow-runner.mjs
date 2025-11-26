@@ -84,13 +84,15 @@ export class FlowRunner {
 			if (flowResult.reflow) {
 				console.log(`\n[FlowRunner] Review rejected. Reflow required.`)
 
-				// Ask user if configured
-				if (this.sequence.ask_before_reflow) {
+				// Ask user if configured (unless auto-approve is set)
+				if (this.sequence.ask_before_reflow && process.env.AUTO_APPROVE !== 'true') {
 					const shouldContinue = await this._askUserToReflow()
 					if (!shouldContinue) {
 						console.log('[FlowRunner] User declined reflow. Stopping.')
 						break
 					}
+				} else if (process.env.AUTO_APPROVE === 'true') {
+					console.log(chalk.yellow('[FlowRunner] Auto-approving reflow (non-interactive mode)'))
 				}
 
 				// Reset to beginning but preserve context

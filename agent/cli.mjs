@@ -149,7 +149,14 @@ program
 	.description('Run the full agent flow')
 	.argument('<description>', 'Feature description')
 	.option('-s, --sequence <name>', 'Sequence to run', 'development')
+	.option('-y, --yes', 'Auto-approve all prompts (non-interactive mode)')
+	.option('--auto-approve', 'Alias for --yes')
 	.action(async (description, options) => {
+		// Set non-interactive mode
+		if (options.yes || options.autoApprove) {
+			process.env.AUTO_APPROVE = 'true'
+		}
+		
 		console.log(chalk.blue.bold('🤖 Starting Multi-Agent Flow\n'))
 
 		const mcpServers = []
@@ -181,7 +188,7 @@ program
 			// Start MCP servers
 			console.log(chalk.cyan('Starting MCP servers...'))
 			
-			const fileOpsServer = new FileOpsServer(3100, config.paths.project)
+			const fileOpsServer = new FileOpsServer(3100, process.cwd())
 			await fileOpsServer.start()
 			mcpServers.push(fileOpsServer)
 
@@ -281,7 +288,7 @@ program
 			// Start MCP servers
 			console.log(chalk.cyan('Starting MCP servers...'))
 			
-			const fileOpsServer = new FileOpsServer(3100, config.paths.project)
+			const fileOpsServer = new FileOpsServer(3100, process.cwd())
 			await fileOpsServer.start()
 			mcpServers.push(fileOpsServer)
 
@@ -346,7 +353,7 @@ program
 			// Start MCP servers
 			console.log(chalk.cyan('Starting MCP servers...'))
 			
-			const fileOpsServer = new FileOpsServer(3100, config.paths.project)
+			const fileOpsServer = new FileOpsServer(3100, process.cwd())
 			await fileOpsServer.start()
 			mcpServers.push(fileOpsServer)
 
