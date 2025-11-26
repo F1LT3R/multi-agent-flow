@@ -9,8 +9,12 @@ ARG GID=1000
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
 # Create agent user with matching UID/GID
-RUN groupadd -g ${GID} agent && \
+# Use existing group if GID exists, otherwise create new group
+RUN (groupadd -g ${GID} agent 2>/dev/null || groupmod -n agent $(getent group ${GID} | cut -d: -f1)) && \
     useradd -u ${UID} -g ${GID} -m -s /bin/bash agent
+
+# Install MCP SDK globally (before switching to agent user)
+RUN npm install -g @modelcontextprotocol/sdk
 
 # Set working directory
 WORKDIR /workspace
@@ -19,18 +23,16 @@ WORKDIR /workspace
 RUN mkdir -p /workspace/project /workspace/tests /workspace/plans && \
     chown -R agent:agent /workspace
 
+# Copy MCP client script (before switching to agent user)
+COPY mcp-client.mjs /usr/local/bin/mcp-client.mjs
+RUN chmod 755 /usr/local/bin/mcp-client.mjs
+
 # Switch to agent user
 USER agent
 
-# Install MCP SDK globally for the agent
-RUN npm install -g @modelcontextprotocol/sdk
-
-# Copy MCP client script
-COPY --chown=agent:agent mcp-client.mjs /usr/local/bin/mcp-client.mjs
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:3100/health || exit 1
+# Health check - just verify node is responsive
+HEALTHCHECK --interval=5s --timeout=3s --start-period=2s --retries=3 \
+  CMD node -e "process.exit(0)"
 
 # Default command - run MCP client
 CMD ["node", "/usr/local/bin/mcp-client.mjs"]

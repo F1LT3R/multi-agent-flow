@@ -3,8 +3,11 @@ import { exec } from 'child_process'
 import { promisify } from 'util'
 import path from 'path'
 import os from 'os'
+import { fileURLToPath } from 'url'
 
 const execAsync = promisify(exec)
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 /**
  * Docker Manager
@@ -25,9 +28,14 @@ export class DockerManager {
 	async buildImage() {
 		console.log('[Docker] Building agent image...')
 
-		const dockerfilePath = path.join(process.cwd(), 'agent', 'docker')
+		// Get the package root using this module's location
+		// __dirname is: /path/to/package/agent/core
+		// We need: /path/to/package/agent/docker
+		const dockerfilePath = path.join(__dirname, '..', 'docker')
 		const uid = os.userInfo().uid
 		const gid = os.userInfo().gid
+
+		console.log(`[Docker] Building from: ${dockerfilePath}`)
 
 		try {
 			const { stdout, stderr } = await execAsync(
