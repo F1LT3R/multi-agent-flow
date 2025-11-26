@@ -2,6 +2,10 @@
 
 Build a JavaScript/Node.js CLI orchestration system where AI agents run in an isolated Docker VM and interact with the host system exclusively through a custom, local Model Context Protocol (MCP) server. Each mode uses a configurable AI model (OpenAI, Anthropic, Google, xAI), with strict directory access controls.
 
+**Distribution**: Installable globally via npm (`npm install -g multi-agent-flow`) for use across multiple projects.
+
+**Configuration-First Design**: All agent behavior, sequences, and tools are defined via configuration, not hardcoded in the orchestrator.
+
 ## 1. Core Architecture & Security
 
 ### Isolation Strategy
@@ -13,13 +17,45 @@ Build a JavaScript/Node.js CLI orchestration system where AI agents run in an is
 ### Directory Access Control
 Permissions are enforced at two levels: VM Mounts (Docker) and MCP Application Logic (Node.js).
 
-**Mounts relative to Project Root:**
-- `./` (Root) → **NOT MOUNTED**
-- `./agent` (Orchestrator code) → **NOT MOUNTED**
-- `./project` (Source code) → **READ/WRITE** (Agents see this as their working root)
-- `./tests` (Approved tests) → **READ_ONLY**
-- `./tests/artifacts` (Failure screenshots/logs) → **READ_ONLY** (Agents write here via MCP only)
-- `./plans` (Requirements/Stories) → **READ_ONLY**
+**Package Structure** (installed globally via npm):
+```
+multi-agent-flow/                # The npm package
+├── agent/                       # Orchestrator code (hidden from users)
+│   ├── cli.mjs                 # Entry point
+│   ├── core/                   # Flow runner, executors
+│   ├── mcp-servers/            # MCP server implementations
+│   ├── ai-providers/           # AI adapter layer
+│   ├── docker/                 # Docker integration
+│   └── tests/                  # Orchestrator tests
+└── templates/                   # Default prompt templates
+    ├── WRITE_USER_STORIES.md
+    └── ... (7 agent prompts)
+```
+
+**User Project Structure** (created by `agent-flow init`):
+```
+my-app/                          # User's project directory
+├── agent-flow.config.mjs       # User configuration
+├── .agent-flow/                # Runtime state (gitignored)
+│   ├── logs/                   # Structured execution logs
+│   └── checkpoints/            # State for resume capability
+├── project/                     # Agent workspace - READ/WRITE
+│   ├── src/                    # Generated source code
+│   ├── tests/                  # Volatile tests (being developed)
+│   └── package.json            # Project dependencies
+├── prompts/                     # User's custom prompts (copied from templates)
+├── plans/                       # Requirements/stories - READ_ONLY
+└── tests/                       # Ratcheted tests (permanent) - READ_ONLY
+    └── artifacts/              # Test failure artifacts
+```
+
+**Access Levels for Agents** (relative to user project root):
+- `./project/` → **READ/WRITE** (Agent workspace)
+- `./tests/` → **READ_ONLY** (Approved tests)
+- `./plans/` → **READ_ONLY** (Requirements)
+- `./prompts/` → **NOT MOUNTED** (Used by orchestrator, not agents)
+
+The `./project` directory contains all source code being written. Agents see it as their root and create their own structure (`src/`, `lib/`, `dist/`, etc.).
 
 ### Docker User Mapping
 - **UID/GID Handling**: The Docker container initiates the agent process using the Host User's UID/GID to ensure files created in `./project` are owned by the user, not `root`.
@@ -34,6 +70,9 @@ Permissions are enforced at two levels: VM Mounts (Docker) and MCP Application L
 - **AGENT_TURN**: A single request/response cycle with the LLM.
 - **MAX_TURNS**: Limit of turns an agent has to complete its task (prevents infinite loops).
 - **RATCHETING**: The process of moving successful outputs (code/tests) from a volatile state to a permanent/read-only state.
+- **GATEKEEPER**: An agent with `is_gatekeeper: true` that can trigger reflow by outputting "STATUS: REJECTED".
+- **TEMPLATES**: Default prompt files in the npm package (`./templates/`).
+- **USER PROMPTS**: Customizable prompt files in user's project (`./prompts/`, copied from templates).
 
 **Date Format**: `YYYY/MM/DD HH:MM:SS` (Log display), `YYYY-MM-DD-HH-MM-SS` (Filenames).
 
@@ -122,9 +161,9 @@ The system is driven by `agent-flow.config.mjs` in the user's project root.
         {
             name: "REVIEW",
             goal: "Audit the result before ratcheting",
-            model: "gpt-5.1-thinking",
+            model: "gpt-4o",
             max_turns: 3,
-            is_gatekeeper: true,
+            is_gatekeeper: true,  // ← Can trigger reflow on rejection
             mcp_tools: {
                 include: ['file_ops', 'run_tests'],
                 exclude: []
@@ -153,9 +192,21 @@ The system is driven by `agent-flow.config.mjs` in the user's project root.
             },
             prompt_file: './prompts/REPORT.md'
         }
+        // ... other agents
     ]
 }
 ```
+
+### Agent Configuration Fields
+
+- `name` - Unique identifier (used in sequences)
+- `goal` - Human-readable description (displayed in CLI)
+- `model` - AI model identifier (e.g., 'gpt-4o', 'claude-sonnet-4-5')
+- `max_turns` - Maximum conversation turns before stopping
+- `is_gatekeeper` - (Optional) If true, can trigger reflow by outputting "STATUS: REJECTED"
+- `complete_turns` - (Optional) Encourage agent to use all turns
+- `mcp_tools` - Tool access control (include/exclude by category or tool name)
+- `prompt_file` - Path to markdown prompt file (relative to user's project)
 
 ---
 
@@ -252,22 +303,94 @@ The host runs 3 distinct MCP Servers.
 
 ## 6. Flow Logic & Error Handling
 
-1. **Initialization**: Load config, pull/build Docker image.
-2. **Loop**: Iterate through `sequences.development.agents`.
+1. **Initialization**: Load config, start MCP servers.
+2. **Loop**: Iterate through configured agent sequence.
 3. **Execution**:
     - Agent generates tool calls.
     - Host executes tool calls via MCP.
     - Result returned to Agent.
-4. **Success**: If Sequence completes, move `./project/tests` -> `./tests` (Ratcheting).
-5. **Failure**:
-    - If `REVIEW` fails: Increment `flow_run_count`. Jump back to `WRITE_USER_STORIES`.
-    - If `MAX_TURNS` reached: Prompt user to continue or fail.
+4. **Gatekeeper Check**: If agent has `is_gatekeeper: true` and outputs "STATUS: REJECTED":
+    - Increment `flow_run_count`
+    - Jump back to first agent in sequence
+    - Ask user for confirmation if `ask_before_reflow: true`
+5. **Success**: If sequence completes, move `./project/tests` → `./tests` (Ratcheting).
+6. **Failure Conditions**:
+    - If `MAX_TURNS` reached: Agent stops, flow continues to next agent.
     - If `MAX_FLOW_RUNS` reached: Abort and generate failure report.
+
+**Configuration-Driven Design:**
+- No hardcoded agent names (e.g., "REVIEW") in flow runner
+- Any agent can be a gatekeeper via `is_gatekeeper` flag
+- Agent task descriptions come from prompt files, not flow runner code
+- Enables custom sequences without modifying orchestrator code
 
 ## 7. Dependencies
 
 - **Core**: `commander`, `dotenv`, `chalk`, `ora`
 - **AI**: `@anthropic-ai/sdk`, `openai`, `@google/generative-ai`
 - **Testing**: `puppeteer`
-- **Communication**: Standard MCP SDK
+- **MCP**: `express`, `cors` (HTTP-based MCP servers)
 - **Container**: `dockerode` (for managing the Agent VM programmatically)
+
+## 8. Installation & Usage
+
+### For End Users
+
+**Install globally:**
+```bash
+npm install -g multi-agent-flow
+```
+
+**Create a project:**
+```bash
+mkdir my-app
+cd my-app
+agent-flow init
+```
+
+**Add API key:**
+```bash
+echo "OPENAI_API_KEY=sk-..." > .env
+```
+
+**Run:**
+```bash
+agent-flow run "Build a calculator CLI"
+```
+
+### For Developers
+
+**Clone and develop:**
+```bash
+git clone <repo-url>
+cd multi-agent-flow
+npm install
+npm link
+```
+
+**Run tests:**
+```bash
+npm test  # Runs agent/tests/*.test.mjs
+```
+
+## 9. Design Principles
+
+### Configuration-First Architecture
+- **No hardcoded agent names** - Flow runner is completely agnostic to agent names
+- **Extensible sequences** - Users create custom workflows without code changes
+- **Gatekeeper pattern** - Any agent can trigger reflow, not just "REVIEW"
+- **Tool permissions** - Per-agent MCP tool access control
+- **Prompt autonomy** - Each agent's behavior defined by its prompt file
+
+### Package vs Project Separation
+- **Templates** - Default prompts in npm package (`./templates/`)
+- **User Prompts** - Customizable copies in user project (`./prompts/`)
+- **Orchestrator Tests** - In package (`./agent/tests/`)
+- **User Tests** - In user project (`./tests/`)
+- **Update Safety** - Users can update tool without losing customizations
+
+### Benefits
+- Reusable agents across different workflows
+- Custom agent types for different domains (design, security, documentation)
+- Multiple user projects with single global installation
+- Tool updates don't overwrite user customizations

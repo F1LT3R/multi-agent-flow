@@ -1,12 +1,16 @@
 # Don't publish these to npm
-tests/
 .agent-flow/
 project/
 plans/
-VISION.md
+prompts/
+tests/
 VISION.md.bak
-GETTING_STARTED.md
 .env
-.env.example
 *.log
+
+# Do publish these
+!agent/**/*
+!templates/**/*
+!docs/**/*
+!.env.example
 

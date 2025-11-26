@@ -8,6 +8,12 @@ node_modules/
 # Agent flow state
 .agent-flow/
 
+# User project directories (created by init)
+# Uncomment these in user projects:
+# project/
+# plans/
+# prompts/
+
 # Logs
 *.log
 logs/

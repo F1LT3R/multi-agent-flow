@@ -31,7 +31,19 @@ Multi-Agent Flow automates software development through a sequence of specialize
 - OpenAI API key
 - Docker (optional, for full isolation)
 
-### Setup
+### Global Installation (Recommended)
+
+Install the CLI tool globally via npm:
+
+```bash
+npm install -g multi-agent-flow
+```
+
+This makes the `agent-flow` command available from any directory.
+
+### Local Development
+
+If you're developing the tool itself:
 
 1. Clone the repository:
 ```bash
@@ -44,24 +56,37 @@ cd multi-agent-flow
 npm install
 ```
 
-3. Make CLI globally available (optional):
+3. Link for local testing:
 ```bash
 npm link
 ```
 
 ## Quick Start
 
-1. Initialize a new project:
+1. **Create a project directory**:
+```bash
+mkdir my-app
+cd my-app
+```
+
+2. **Initialize agent-flow**:
 ```bash
 agent-flow init
 ```
 
-2. Add your OpenAI API key to `.env`:
+This creates:
+- `./project/` - Where agents write code
+- `./tests/` - Permanent test storage
+- `./plans/` - User stories and requirements
+- `./prompts/` - Customizable agent instructions (copied from templates)
+- `agent-flow.config.mjs` - Configuration file
+
+3. **Add your OpenAI API key** to `.env`:
 ```bash
 OPENAI_API_KEY=your_key_here
 ```
 
-3. Run a flow:
+4. **Run a flow**:
 ```bash
 agent-flow run "Build a simple todo list CLI app"
 ```
@@ -69,12 +94,17 @@ agent-flow run "Build a simple todo list CLI app"
 ## CLI Commands
 
 ### `agent-flow init`
-Initialize agent-flow in the current directory. Creates:
-- `./project` - Where agents write code
-- `./tests` - Permanent test storage
-- `./plans` - User stories and requirements
-- `./prompts` - Agent instruction templates
+Initialize agent-flow in the current directory. 
+
+**What it creates:**
+- `./project/` - Where agents write code (writable workspace)
+- `./tests/` - Permanent test storage (ratcheted tests)
+- `./plans/` - User stories and requirements
+- `./prompts/` - Customizable agent instructions (copied from templates)
 - `agent-flow.config.mjs` - Configuration file
+- `./.agent-flow/` - Runtime state (logs, checkpoints) - gitignored
+
+**Note:** The prompts are copied from the package's templates, so you can customize them without affecting the tool itself.
 
 ### `agent-flow run <description>`
 Run the full agent sequence with your feature description.
@@ -179,19 +209,34 @@ Four HTTP-based MCP servers provide tools to agents:
 
 ### Directory Structure
 
+**NPM Package Structure** (installed globally):
 ```
-.
-├── agent/                  # Orchestrator code
+multi-agent-flow/
+├── agent/                  # Orchestrator code (hidden from user)
 │   ├── cli.mjs            # Main CLI entry point
 │   ├── core/              # Core orchestration
 │   ├── mcp-servers/       # MCP server implementations
 │   ├── ai-providers/      # AI provider adapters
-│   └── docker/            # Docker isolation (future)
+│   ├── docker/            # Docker isolation
+│   └── tests/             # Orchestrator tests
+└── templates/             # Default prompt templates
+```
+
+**User Project Structure** (created by `agent-flow init`):
+```
+my-app/
+├── agent-flow.config.mjs  # Your configuration
+├── .agent-flow/           # Runtime state (gitignored)
+│   ├── logs/              # Structured execution logs
+│   └── checkpoints/       # Saved states for resume
 ├── project/               # Agent workspace (writable)
-├── tests/                 # Permanent tests (read-only to agents)
-├── plans/                 # Requirements (read-only to agents)
-├── prompts/               # Agent instructions
-└── agent-flow.config.mjs  # Configuration
+│   ├── src/               # Generated source code
+│   ├── tests/             # Volatile tests (being worked on)
+│   └── package.json       # Project dependencies
+├── prompts/               # Your custom agent instructions
+├── plans/                 # User stories, requirements
+└── tests/                 # Ratcheted tests (permanent, read-only)
+    └── artifacts/         # Test failure artifacts
 ```
 
 ## Flow Logic
@@ -213,6 +258,8 @@ Edit files in `./prompts/` to customize agent behavior:
 - `GENERATE_CODE.md`
 - `PLAN_TESTS.md`
 - etc.
+
+**Note:** These files are copied from the package's `templates/` directory during `agent-flow init`. You can safely modify them without affecting the tool. If you update multi-agent-flow, your custom prompts are preserved.
 
 ### Custom Sequences
 
@@ -266,6 +313,13 @@ npm test
 1. Create adapter in `agent/ai-providers/`
 2. Implement `BaseAIAdapter` interface
 3. Update `ProviderFactory` to recognize model prefix
+
+## Documentation
+
+- [Vision & Architecture](docs/VISION.md) - Comprehensive system design
+- [Getting Started Guide](docs/GETTING_STARTED.md) - Step-by-step tutorial
+- [Implementation Summary](docs/IMPLEMENTATION_SUMMARY.md) - Technical details
+- [Restructure Summary](docs/RESTRUCTURE_SUMMARY.md) - Package reorganization details
 
 ## License
 

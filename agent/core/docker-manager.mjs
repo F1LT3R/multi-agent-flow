@@ -96,6 +96,12 @@ export class DockerManager {
 				],
 			},
 			Env: [
+				// API Keys
+				`OPENAI_API_KEY=${process.env.OPENAI_API_KEY || ''}`,
+				`ANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY || ''}`,
+				`GOOGLE_AI_API_KEY=${process.env.GOOGLE_AI_API_KEY || ''}`,
+				`XAI_API_KEY=${process.env.XAI_API_KEY || ''}`,
+				// MCP Server Ports
 				`MCP_FILE_OPS_PORT=${process.env.MCP_FILE_OPS_PORT || 3100}`,
 				`MCP_TEST_RUNNER_PORT=${process.env.MCP_TEST_RUNNER_PORT || 3101}`,
 				`MCP_ANALYSIS_PORT=${process.env.MCP_ANALYSIS_PORT || 3102}`,
@@ -165,6 +171,43 @@ export class DockerManager {
 
 			stream.on('error', reject)
 		})
+	}
+
+	/**
+	 * Wait for container to become healthy
+	 */
+	async waitForHealthy(timeout = 30000) {
+		if (!this.container) {
+			throw new Error('Container not started')
+		}
+
+		const start = Date.now()
+		
+		while (Date.now() - start < timeout) {
+			try {
+				const inspect = await this.container.inspect()
+				
+				// Check if container has health check configured
+				if (inspect.State.Health) {
+					if (inspect.State.Health.Status === 'healthy') {
+						console.log('[Docker] Container is healthy')
+						return true
+					}
+				} else {
+					// No health check, just verify it's running
+					if (inspect.State.Running) {
+						console.log('[Docker] Container is running (no health check)')
+						return true
+					}
+				}
+			} catch (error) {
+				// Container might not exist yet, continue waiting
+			}
+
+			await new Promise((resolve) => setTimeout(resolve, 1000))
+		}
+
+		throw new Error(`Container health check timeout after ${timeout}ms`)
 	}
 
 	/**

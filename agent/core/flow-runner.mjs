@@ -1,7 +1,9 @@
 import { AgentExecutor } from './agent-executor.mjs'
 import { MCPClient } from './mcp-client.mjs'
 import { CheckpointManager, createStateSnapshot, restoreStateFromSnapshot } from './checkpoint-manager.mjs'
+import { DockerManager } from './docker-manager.mjs'
 import readline from 'readline'
+import chalk from 'chalk'
 
 /**
  * Flow Runner
@@ -12,7 +14,7 @@ export class FlowRunner {
 		this.config = config
 		this.sequenceName = sequenceName
 		this.sequence = config.sequences[sequenceName]
-
+		
 		if (!this.sequence) {
 			throw new Error(`Sequence '${sequenceName}' not found in configuration`)
 		}
@@ -21,7 +23,9 @@ export class FlowRunner {
 		this.checkpointManager = new CheckpointManager(
 			this.config.paths.checkpointDir || './.agent-flow/checkpoints'
 		)
-
+		this.dockerManager = new DockerManager(config)
+		this.useDocker = process.env.SKIP_DOCKER !== 'true'
+		
 		this.state = {
 			sequenceName,
 			flowRunCount: 0,
@@ -51,11 +55,26 @@ export class FlowRunner {
 			runId = CheckpointManager.generateRunId()
 		}
 
-		console.log(`[FlowRunner] Starting flow: ${this.sequenceName}`)
-		console.log(`[FlowRunner] Run ID: ${runId}`)
+		console.log(chalk.blue.bold(`[FlowRunner] Starting flow: ${this.sequenceName}`))
+		console.log(chalk.blue(`[FlowRunner] Run ID: ${runId}`))
 
-		// Flow run loop (handles reflows)
-		while (this.state.flowRunCount < this.sequence.max_flow_runs) {
+		// Start Docker container if enabled
+		if (this.useDocker) {
+			console.log(chalk.cyan('\n[Docker] Starting container...'))
+			try {
+				await this.dockerManager.startContainer()
+				await this.dockerManager.waitForHealthy()
+			} catch (error) {
+				console.error(chalk.red('[Docker] Failed to start container:'), error.message)
+				throw error
+			}
+		}
+
+		let flowSuccess = false
+
+		try {
+			// Flow run loop (handles reflows)
+			while (this.state.flowRunCount < this.sequence.max_flow_runs) {
 			this.state.flowRunCount++
 			console.log(`\n[FlowRunner] Flow Run ${this.state.flowRunCount}/${this.sequence.max_flow_runs}`)
 
@@ -82,22 +101,34 @@ export class FlowRunner {
 				continue
 			}
 
-			// Flow completed successfully
-			console.log('\n[FlowRunner] Flow completed successfully!')
+				// Flow completed successfully
+				console.log(chalk.green.bold('\n[FlowRunner] Flow completed successfully!'))
+				flowSuccess = true
+				return {
+					success: true,
+					flowRunCount: this.state.flowRunCount,
+					results: this.state.agentResults,
+				}
+			}
+
+			// Max flow runs reached
+			console.error(chalk.red(`\n[FlowRunner] Max flow runs (${this.sequence.max_flow_runs}) reached.`))
 			return {
-				success: true,
+				success: false,
 				flowRunCount: this.state.flowRunCount,
 				results: this.state.agentResults,
+				reason: 'max_flow_runs_exceeded',
 			}
-		}
-
-		// Max flow runs reached
-		console.error(`\n[FlowRunner] Max flow runs (${this.sequence.max_flow_runs}) reached.`)
-		return {
-			success: false,
-			flowRunCount: this.state.flowRunCount,
-			results: this.state.agentResults,
-			reason: 'max_flow_runs_exceeded',
+		} finally {
+			// Stop Docker container if enabled
+			if (this.useDocker) {
+				console.log(chalk.cyan('\n[Docker] Stopping container...'))
+				try {
+					await this.dockerManager.stopContainer()
+				} catch (error) {
+					console.error(chalk.yellow('[Docker] Error stopping container:'), error.message)
+				}
+			}
 		}
 	}
 
@@ -117,16 +148,20 @@ export class FlowRunner {
 				throw new Error(`Agent '${agentName}' not found in configuration`)
 			}
 
-			console.log(`\n${'='.repeat(60)}`)
-			console.log(`Agent: ${agentName}`)
-			console.log(`Goal: ${agentConfig.goal}`)
-			console.log(`${'='.repeat(60)}\n`)
+			console.log(chalk.blue(`\n${'='.repeat(60)}`))
+			console.log(chalk.blue.bold(`Agent: ${agentName}`))
+			console.log(chalk.blue(`Goal: ${agentConfig.goal}`))
+			console.log(chalk.blue(`${'='.repeat(60)}\n`))
 
 			// Prepare input for agent
 			const agentInput = this._prepareAgentInput(agentName, i)
 
-			// Execute agent
-			const executor = new AgentExecutor(agentConfig, this.mcpClient)
+			// Execute agent with streaming callbacks
+			const executor = new AgentExecutor(agentConfig, this.mcpClient, {
+				flowRunCount: this.state.flowRunCount,
+				tracesDir: this.config.paths.traces,
+				callbacks: this._createCallbacks(agentName),
+			})
 			const result = await executor.execute(agentInput)
 
 			// Save result
@@ -182,21 +217,51 @@ export class FlowRunner {
 	}
 
 	/**
+	 * Create streaming callbacks for real-time output
+	 */
+	_createCallbacks(agentName) {
+		return {
+			onTurnStart: (agent, turn) => {
+				console.log(chalk.cyan(`\n▶ Turn ${turn}`))
+			},
+			onThinking: (text) => {
+				// Stream agent thinking in gray
+				process.stdout.write(chalk.gray(text))
+			},
+			onToolCall: (name, args) => {
+				console.log(chalk.yellow(`\n🔧 ${name}(${JSON.stringify(args).substring(0, 100)}...)`))
+			},
+			onToolResult: (name, result, success) => {
+				if (success) {
+					console.log(chalk.green(`✓ ${name} completed`))
+				} else {
+					console.log(chalk.red(`✗ ${name} failed`))
+				}
+			},
+			onTurnComplete: (agent, turn, result) => {
+				if (result.tokenUsage) {
+					console.log(chalk.gray(`\n📊 Tokens: ${result.tokenUsage.total_tokens || result.tokenUsage.total || 0}`))
+				}
+			},
+		}
+	}
+
+	/**
 	 * Display agent summary
 	 */
 	_displayAgentSummary(result) {
-		console.log(`\n--- Agent Summary ---`)
+		console.log(chalk.cyan(`\n--- Agent Summary ---`))
 		console.log(`Turns used: ${result.turns.length}`)
-		console.log(`Success: ${result.success}`)
-
+		console.log(`Success: ${result.success ? chalk.green('✓') : chalk.red('✗')}`)
+		
 		if (result.tokenUsage) {
 			console.log(
-				`Tokens: ${result.tokenUsage.prompt} prompt + ${result.tokenUsage.completion} completion = ${result.tokenUsage.total} total`
+				`Tokens: ${result.tokenUsage.prompt_tokens || result.tokenUsage.prompt || 0} prompt + ${result.tokenUsage.completion_tokens || result.tokenUsage.completion || 0} completion = ${result.tokenUsage.total_tokens || result.tokenUsage.total || 0} total`
 			)
 		}
 
 		if (result.error) {
-			console.error(`Error: ${result.error}`)
+			console.error(chalk.red(`Error: ${result.error}`))
 		}
 
 		console.log(``)

@@ -6,13 +6,14 @@ import { pathToFileURL } from 'url'
  * Default configuration based on VISION.md
  */
 export const DEFAULT_CONFIG = {
-	paths: {
-		plans: './plans',
-		project: './project',
-		prompts: './prompts',
-		tests: './tests',
-		artifacts: './tests/artifacts',
-	},
+		paths: {
+			plans: './plans',
+			project: './project',
+			prompts: './prompts',  // User's custom prompts
+			tests: './tests',
+			artifacts: './tests/artifacts',
+			traces: './traces',  // Agent execution traces
+		},
 	persistence: {
 		checkpoint_interval: 'every_turn',
 		log_dir: './.agent-flow/logs',
@@ -258,6 +259,8 @@ export class ConfigLoader {
 		}
 
 		// Resolve prompt files
+		// Prompts should be in user's project (./prompts/)
+		// NOT in the package's templates directory
 		for (const agent of this.config.agents) {
 			if (agent.prompt_file) {
 				agent.prompt_file = path.resolve(this.projectRoot, agent.prompt_file)

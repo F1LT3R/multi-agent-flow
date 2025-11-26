@@ -1,6 +1,7 @@
 import fs from 'fs/promises'
 import { ProviderFactory } from '../ai-providers/provider-factory.mjs'
 import { MCPClient } from './mcp-client.mjs'
+import { TraceRecorder } from './trace-recorder.mjs'
 
 /**
  * Agent Executor
@@ -15,6 +16,9 @@ export class AgentExecutor {
 		this.messages = []
 		this.turnCount = 0
 		this.tools = []
+		this.flowRunCount = options.flowRunCount || 1
+		this.traceRecorder = new TraceRecorder(options.tracesDir || './traces')
+		this.callbacks = options.callbacks || {}
 	}
 
 	/**
@@ -106,12 +110,24 @@ export class AgentExecutor {
 	 */
 	async _executeTurn() {
 		this.turnCount++
+		const startTime = new Date().toISOString()
+		
 		console.log(
 			`[${this.agentConfig.name}] Turn ${this.turnCount}/${this.agentConfig.max_turns}`
 		)
 
+		// Notify callback
+		if (this.callbacks.onTurnStart) {
+			this.callbacks.onTurnStart(this.agentConfig.name, this.turnCount)
+		}
+
 		// Call AI provider
 		const response = await this.provider.createCompletion(this.messages, this.tools)
+
+		// Stream thinking to callback
+		if (this.callbacks.onThinking && response.content) {
+			this.callbacks.onThinking(response.content)
+		}
 
 		// Add assistant message to history
 		this.messages.push({
@@ -146,6 +162,16 @@ export class AgentExecutor {
 			}
 		}
 
+		const endTime = new Date().toISOString()
+
+		// Record trace
+		await this._recordTrace(startTime, endTime, turnResult)
+
+		// Notify callback
+		if (this.callbacks.onTurnComplete) {
+			this.callbacks.onTurnComplete(this.agentConfig.name, this.turnCount, turnResult)
+		}
+
 		return turnResult
 	}
 
@@ -158,6 +184,11 @@ export class AgentExecutor {
 		for (const toolCall of toolCalls) {
 			console.log(`[${this.agentConfig.name}] Calling tool: ${toolCall.name}`)
 
+			// Notify callback
+			if (this.callbacks.onToolCall) {
+				this.callbacks.onToolCall(toolCall.name, toolCall.arguments)
+			}
+
 			try {
 				const result = await this.mcpClient.callTool(toolCall.name, toolCall.arguments)
 				results.push({
@@ -165,6 +196,11 @@ export class AgentExecutor {
 					success: true,
 					result,
 				})
+
+				// Notify callback
+				if (this.callbacks.onToolResult) {
+					this.callbacks.onToolResult(toolCall.name, result, true)
+				}
 			} catch (error) {
 				console.error(`[${this.agentConfig.name}] Tool error:`, error.message)
 				results.push({
@@ -172,10 +208,49 @@ export class AgentExecutor {
 					success: false,
 					error: error.message,
 				})
+
+				// Notify callback
+				if (this.callbacks.onToolResult) {
+					this.callbacks.onToolResult(toolCall.name, { error: error.message }, false)
+				}
 			}
 		}
 
 		return results
+	}
+
+	/**
+	 * Record trace for this turn
+	 */
+	async _recordTrace(startTime, endTime, turnResult) {
+		try {
+			const traceData = {
+				timestamp: startTime,
+				startTime,
+				endTime,
+				model: this.agentConfig.model,
+				maxTurns: this.agentConfig.max_turns,
+				userInput: this.messages[1]?.content || null,
+				systemPrompt: this.messages[0]?.content || null,
+				response: turnResult.content,
+				toolCalls: turnResult.toolCalls ? turnResult.toolCalls.map((tc, i) => ({
+					name: tc.name,
+					arguments: tc.arguments,
+					result: turnResult.toolResults?.[i],
+				})) : [],
+				tokenUsage: turnResult.tokenUsage,
+				finishReason: turnResult.finishReason,
+			}
+
+			await this.traceRecorder.recordTurn(
+				this.agentConfig.name,
+				this.flowRunCount,
+				this.turnCount,
+				traceData
+			)
+		} catch (error) {
+			console.error(`[${this.agentConfig.name}] Failed to record trace:`, error.message)
+		}
 	}
 
 	/**

@@ -2,13 +2,34 @@
 
 ## Step-by-Step Setup Guide
 
-### 1. Install Dependencies
+### 1. Install the CLI Tool
+
+Install globally via npm:
 
 ```bash
-npm install
+npm install -g multi-agent-flow
 ```
 
-### 2. Configure Environment
+Or for local development:
+
+```bash
+git clone <repo-url>
+cd multi-agent-flow
+npm install
+npm link
+```
+
+### 2. Create a New Project
+
+```bash
+mkdir my-app
+cd my-app
+agent-flow init
+```
+
+This creates the project structure and copies prompt templates to `./prompts/`.
+
+### 3. Configure Environment
 
 Copy the environment template and add your API key:
 
@@ -51,13 +72,14 @@ This creates:
 
 ### 5. Customize Prompts (Optional)
 
-The `./prompts/` directory contains instruction files for each agent. Copy from the main repo:
+The `./prompts/` directory contains instruction files for each agent, copied from the package templates. You can customize these to change agent behavior:
 
 ```bash
-cp ../prompts/*.md ./prompts/
+# Edit any prompt file
+vim ./prompts/GENERATE_CODE.md
 ```
 
-Or create your own custom prompts.
+Your customizations are preserved when you update the tool.
 
 ### 6. Run Your First Flow
 

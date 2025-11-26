@@ -41,7 +41,7 @@ program
 
 			// Create directory structure
 			const spinner = ora('Creating directory structure...').start()
-			const dirs = ['project', 'tests', 'tests/artifacts', 'plans', 'prompts']
+			const dirs = ['project', 'tests', 'tests/artifacts', 'plans', 'prompts', 'traces']
 
 			for (const dir of dirs) {
 				await fs.mkdir(path.join(projectRoot, dir), { recursive: true })
@@ -63,35 +63,58 @@ program
 				}
 			}
 
-			// Copy prompt files if they don't exist
-			spinner.start('Setting up prompt files...')
+		// Copy template files to user's prompts directory
+		spinner.start('Copying prompt templates...')
+		
+		const promptFiles = [
+			'WRITE_USER_STORIES.md',
+			'GENERATE_CODE.md',
+			'PLAN_TESTS.md',
+			'GENERATE_TESTS.md',
+			'REVIEW.md',
+			'CLEAN_AND_REFACTOR.md',
+			'REPORT.md',
+		]
+
+		// Determine template source directory
+		// If running from repo, use ./templates
+		// If installed globally, templates are in the package
+		const packageRoot = path.join(path.dirname(new URL(import.meta.url).pathname), '..')
+		const templatesDir = path.join(packageRoot, 'templates')
+		const userPromptsDir = path.join(projectRoot, 'prompts')
+
+		try {
+			// Check if templates directory exists
+			await fs.access(templatesDir)
 			
-			const promptFiles = [
-				'WRITE_USER_STORIES.md',
-				'GENERATE_CODE.md',
-				'PLAN_TESTS.md',
-				'GENERATE_TESTS.md',
-				'REVIEW.md',
-				'CLEAN_AND_REFACTOR.md',
-				'REPORT.md',
-			]
-
-			// Check if prompts already exist in workspace
-			const sourcePromptsDir = path.join(projectRoot, 'prompts')
-			let promptsExist = false
-
-			try {
-				const existingPrompts = await fs.readdir(sourcePromptsDir)
-				promptsExist = existingPrompts.length > 0
-			} catch (error) {
-				// Directory doesn't exist or is empty
+			// Copy each template file
+			let copiedCount = 0
+			for (const file of promptFiles) {
+				const sourcePath = path.join(templatesDir, file)
+				const destPath = path.join(userPromptsDir, file)
+				
+				try {
+					// Check if destination already exists
+					await fs.access(destPath)
+					// File exists, skip
+				} catch {
+					// File doesn't exist, copy it
+					await fs.copyFile(sourcePath, destPath)
+					copiedCount++
+				}
 			}
-
-			if (promptsExist) {
-				spinner.info('Prompt files already exist')
+			
+			if (copiedCount === promptFiles.length) {
+				spinner.succeed('Prompt templates copied')
+			} else if (copiedCount > 0) {
+				spinner.succeed(`Copied ${copiedCount} new prompt templates`)
 			} else {
-				spinner.warn('Prompt files need to be created manually in ./prompts/')
+				spinner.info('Prompt templates already exist')
 			}
+		} catch (error) {
+			spinner.warn('Could not copy templates. You may need to create prompts manually.')
+			console.error('  Error:', error.message)
+		}
 
 			// Create .env file if it doesn't exist
 			spinner.start('Setting up environment...')
@@ -104,11 +127,14 @@ program
 				spinner.warn('.env file not found. Copy .env.example and add your API keys.')
 			}
 
-			console.log(chalk.green.bold('\n✅ Initialization complete!\n'))
-			console.log(chalk.yellow('Next steps:'))
-			console.log('  1. Add your OpenAI API key to .env')
-			console.log('  2. Review agent-flow.config.mjs')
-			console.log('  3. Run: agent-flow run "your feature description"\n')
+		console.log(chalk.green.bold('\n✅ Initialization complete!\n'))
+		console.log(chalk.yellow('Next steps:'))
+		console.log('  1. Add your OpenAI API key to .env')
+		console.log('  2. Ensure Docker is running (for agent isolation)')
+		console.log('  3. Review agent-flow.config.mjs')
+		console.log('  4. Customize prompts in ./prompts/ (optional)')
+		console.log('  5. Run: agent-flow run "your feature description"\n')
+		console.log(chalk.gray('Note: Set SKIP_DOCKER=true to run without Docker isolation\n'))
 		} catch (error) {
 			console.error(chalk.red('❌ Initialization failed:'), error.message)
 			process.exit(1)
@@ -129,6 +155,24 @@ program
 		const mcpServers = []
 		
 		try {
+			// Check Docker if not skipped
+			if (process.env.SKIP_DOCKER !== 'true') {
+				const spinner = ora('Checking Docker...').start()
+				try {
+					const { exec } = await import('child_process')
+					const { promisify } = await import('util')
+					const execAsync = promisify(exec)
+					await execAsync('docker info')
+					spinner.succeed('Docker is running')
+				} catch (error) {
+					spinner.warn('Docker not available - running without isolation')
+					process.env.SKIP_DOCKER = 'true'
+					console.log(chalk.yellow('Tip: Install Docker for full isolation, or set SKIP_DOCKER=true\n'))
+				}
+			} else {
+				console.log(chalk.yellow('⚠ Running without Docker isolation (SKIP_DOCKER=true)\n'))
+			}
+
 			// Load configuration
 			const configLoader = new ConfigLoader()
 			await configLoader.load()

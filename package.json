@@ -8,9 +8,15 @@
 		"agent-flow": "./agent/cli.mjs"
 	},
 	"scripts": {
-		"test": "node --test tests/*.test.mjs",
+		"test": "node --test agent/tests/*.test.mjs",
 		"start": "node agent/cli.mjs"
 	},
+	"preferGlobal": true,
+	"files": [
+		"agent/**/*",
+		"templates/**/*",
+		".env.example"
+	],
 	"keywords": [
 		"ai",
 		"agents",
