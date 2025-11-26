@@ -1,0 +1,12 @@
+# Don't publish these to npm
+tests/
+.agent-flow/
+project/
+plans/
+VISION.md
+VISION.md.bak
+GETTING_STARTED.md
+.env
+.env.example
+*.log
+

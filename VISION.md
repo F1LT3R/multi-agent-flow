@@ -124,6 +124,7 @@ The system is driven by `agent-flow.config.mjs` in the user's project root.
             goal: "Audit the result before ratcheting",
             model: "gpt-5.1-thinking",
             max_turns: 3,
+            is_gatekeeper: true,
             mcp_tools: {
                 include: ['file_ops', 'run_tests'],
                 exclude: []
