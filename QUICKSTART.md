@@ -57,4 +57,15 @@ agent-flow run "Add scientific functions to the calculator"
 agent-flow run "your task" --yes
 ```
 
+## Troubleshooting
+
+**If you get "address already in use" errors:**
+
+```bash
+# Clean up stuck MCP servers
+agent-flow cleanup
+```
+
+This kills any processes still running on ports 3100-3103 from a previous run that didn't shut down cleanly.
+
 That's it!

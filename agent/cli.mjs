@@ -191,23 +191,36 @@ program
 			// Start MCP servers
 			console.log(chalk.cyan('Starting MCP servers...'))
 
-			const fileOpsServer = new FileOpsServer(3100, process.cwd())
-			await fileOpsServer.start()
-			mcpServers.push(fileOpsServer)
+			try {
+				const fileOpsServer = new FileOpsServer(3100, process.cwd())
+				await fileOpsServer.start()
+				mcpServers.push(fileOpsServer)
 
-			const testRunnerServer = new TestRunnerServer(3101, config.paths.project)
-			await testRunnerServer.start()
-			mcpServers.push(testRunnerServer)
+				const testRunnerServer = new TestRunnerServer(3101, config.paths.project)
+				await testRunnerServer.start()
+				mcpServers.push(testRunnerServer)
 
-			const analysisServer = new AnalysisServer(3102, config.paths.project)
-			await analysisServer.start()
-			mcpServers.push(analysisServer)
+				const analysisServer = new AnalysisServer(3102, config.paths.project)
+				await analysisServer.start()
+				mcpServers.push(analysisServer)
 
-			const internetServer = new InternetServer(3103)
-			await internetServer.start()
-			mcpServers.push(internetServer)
+				const internetServer = new InternetServer(3103)
+				await internetServer.start()
+				mcpServers.push(internetServer)
 
-			console.log(chalk.green('✓ MCP servers running\n'))
+				console.log(chalk.green('✓ MCP servers running\n'))
+			} catch (error) {
+				if (error.code === 'EADDRINUSE') {
+					console.error(chalk.red('\n❌ ERROR: MCP server ports are already in use\n'))
+					console.error(chalk.yellow('This usually means a previous run did not shut down cleanly.\n'))
+					console.error(chalk.cyan('To fix this, run:'))
+					console.error(chalk.gray('  lsof -ti:3100,3101,3102,3103 | xargs kill -9\n'))
+					console.error(chalk.gray('Or on some systems:'))
+					console.error(chalk.gray('  pkill -f "mcp-server"\n'))
+					process.exit(1)
+				}
+				throw error
+			}
 
 			// Run the flow
 			const runner = new FlowRunner(config, options.sequence)
@@ -430,6 +443,38 @@ program
 			}
 		} catch (error) {
 			console.error(chalk.red('Failed to list checkpoints:'), error.message)
+		}
+	})
+
+/**
+ * Cleanup command - Kill stuck MCP servers
+ */
+program
+	.command('cleanup')
+	.description('Kill any stuck MCP server processes')
+	.action(async () => {
+		console.log(chalk.blue.bold('🧹 Cleaning up MCP servers\n'))
+
+		try {
+			const { exec } = await import('child_process')
+			const { promisify } = await import('util')
+			const execAsync = promisify(exec)
+
+			// Try to find and kill processes on MCP ports
+			try {
+				await execAsync('lsof -ti:3100,3101,3102,3103 | xargs kill -9 2>/dev/null')
+				console.log(chalk.green('✓ Killed processes on ports 3100-3103'))
+			} catch (error) {
+				// lsof might not be available or no processes found
+				console.log(chalk.yellow('No processes found on MCP ports (3100-3103)'))
+			}
+
+			console.log(chalk.green('\n✓ Cleanup complete\n'))
+		} catch (error) {
+			console.error(chalk.red('Cleanup failed:'), error.message)
+			console.log(chalk.yellow('\nTry manually:'))
+			console.log(chalk.gray('  lsof -ti:3100,3101,3102,3103 | xargs kill -9'))
+			console.log(chalk.gray('  or: pkill -f "mcp-server"\n'))
 		}
 	})
 
