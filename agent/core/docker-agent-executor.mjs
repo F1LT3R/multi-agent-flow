@@ -193,6 +193,14 @@ async function main() {
 								success: false,
 								error: error.message,
 							})
+							
+							// CRITICAL: Still add tool message even on error
+							// OpenAI requires a response for every tool_call_id
+							messages.push({
+								role: 'tool',
+								tool_call_id: toolCall.id,
+								content: JSON.stringify({ error: error.message }),
+							})
 						}
 					}
 				}
