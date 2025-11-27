@@ -91,15 +91,26 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 		.then((tools) => {
 			console.log(`[Docker MCP Client] Connected. Found ${tools.length} tools.`)
 			console.log('[Docker MCP Client] Ready to receive commands.')
+			
+			// Keep the process alive indefinitely
+			// The container will be stopped explicitly by the orchestrator
+			setInterval(() => {
+				// Heartbeat every 30 seconds to keep container alive
+			}, 30000)
 		})
 		.catch((error) => {
 			console.error('[Docker MCP Client] Failed to connect:', error.message)
 			process.exit(1)
 		})
 
-	// Keep alive
+	// Graceful shutdown
+	process.on('SIGTERM', () => {
+		console.log('[Docker MCP Client] Received SIGTERM, shutting down...')
+		process.exit(0)
+	})
+	
 	process.on('SIGINT', () => {
-		console.log('[Docker MCP Client] Shutting down...')
+		console.log('[Docker MCP Client] Received SIGINT, shutting down...')
 		process.exit(0)
 	})
 }

@@ -42,6 +42,7 @@ STATUS: REJECTED
 - **Be specific**: Don't just say "add error handling" - specify exactly where and what
 - **Be actionable**: Every issue should have a clear fix
 - **Be thorough**: Check code quality, not just test results
+- **Test Framework**: Tests should use Node.js built-in `node:test` module (NOT Mocha/Jest/etc) for CLI/logic tests, and Puppeteer for browser tests
 
 # Good vs. Bad Rejection Examples
 
@@ -68,7 +69,8 @@ STATUS: REJECTED
 ## What Should Be Fixed
 1. Add to division function: `if (b === 0) throw new Error('Division by zero')`
 2. Add input validation to all functions: `if (typeof a !== 'number') throw new TypeError('Expected number')`
-3. Add test cases for: zero division, string inputs, null/undefined inputs
-4. Update USER_STORIES_N.md to specify exact error types and messages expected
+3. Create test files in `./project/tests/` using Node.js built-in `node:test` module
+4. Add test cases for: zero division, string inputs, null/undefined inputs
+5. Update USER_STORIES_N.md to specify exact error types and messages expected
 ```
 
