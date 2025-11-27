@@ -24,7 +24,6 @@ export class FlowRunner {
 			this.config.paths.checkpointDir || './.agent-flow/checkpoints'
 		)
 		this.dockerManager = new DockerManager(config)
-		this.useDocker = process.env.SKIP_DOCKER !== 'true'
 		
 		this.state = {
 			sequenceName,
@@ -58,16 +57,14 @@ export class FlowRunner {
 		console.log(chalk.blue.bold(`[FlowRunner] Starting flow: ${this.sequenceName}`))
 		console.log(chalk.blue(`[FlowRunner] Run ID: ${runId}`))
 
-		// Start Docker container if enabled
-		if (this.useDocker) {
-			console.log(chalk.cyan('\n[Docker] Starting container...'))
-			try {
-				await this.dockerManager.startContainer()
-				await this.dockerManager.waitForHealthy()
-			} catch (error) {
-				console.error(chalk.red('[Docker] Failed to start container:'), error.message)
-				throw error
-			}
+		// Start Docker container (always required)
+		console.log(chalk.cyan('\n[Docker] Starting container...'))
+		try {
+			await this.dockerManager.startContainer()
+			await this.dockerManager.waitForHealthy()
+		} catch (error) {
+			console.error(chalk.red('[Docker] Failed to start container:'), error.message)
+			throw error
 		}
 
 		let flowSuccess = false
@@ -122,14 +119,12 @@ export class FlowRunner {
 				reason: 'max_flow_runs_exceeded',
 			}
 		} finally {
-			// Stop Docker container if enabled
-			if (this.useDocker) {
-				console.log(chalk.cyan('\n[Docker] Stopping container...'))
-				try {
-					await this.dockerManager.stopContainer()
-				} catch (error) {
-					console.error(chalk.yellow('[Docker] Error stopping container:'), error.message)
-				}
+			// Stop Docker container (always required)
+			console.log(chalk.cyan('\n[Docker] Stopping container...'))
+			try {
+				await this.dockerManager.stopContainer()
+			} catch (error) {
+				console.error(chalk.yellow('[Docker] Error stopping container:'), error.message)
 			}
 		}
 	}

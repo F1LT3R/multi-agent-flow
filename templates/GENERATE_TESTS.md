@@ -7,15 +7,15 @@ You have a Test Plan and access to the source code. Your job is to prove the cod
 # Before You Start - Learn from Previous Attempts
 
 1. **Check for previous reports**: Look for `./plans/LAST_RUN_REPORT.md`
-   
+
 2. **If report exists, check relevance**:
-   
+
    a. Read the **Status** and **Original Task** fields
-   
+
    b. Determine if this report is about:
       - The SAME feature you're testing now → Relevant
       - A DIFFERENT feature → Not relevant, ignore it
-   
+
    c. **Use report appropriately**:
       - **Same feature + Failed**: Read "Tests Status" to see what failed and why
       - **Same feature + Success**: Review existing tests, may not need changes

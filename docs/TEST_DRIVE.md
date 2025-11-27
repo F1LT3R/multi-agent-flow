@@ -60,12 +60,12 @@ echo "OPENAI_API_KEY=sk-your-actual-key-here" > .env
 
 ## Test Scenarios
 
-### Test 1: Simple Code Generation (No Docker)
+### Test 1: Simple Code Generation
 
-Test without Docker to verify basic functionality:
+Test basic functionality:
 
 ```bash
-SKIP_DOCKER=true agent-flow run "Create a simple hello.js file that prints 'Hello, World!'"
+agent-flow run "Create a simple hello.js file that prints 'Hello, World!'"
 ```
 
 **What to observe:**
@@ -269,7 +269,7 @@ If you encounter issues:
 
 1. Check traces in ./traces/ for detailed execution history
 2. Check logs in ./.agent-flow/logs/
-3. Run with SKIP_DOCKER=true to isolate Docker issues
+3. Ensure Docker is running: `docker info`
 4. Review this guide for troubleshooting steps
 
 Enjoy building with Multi-Agent Flow! 🚀

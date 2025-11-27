@@ -7,17 +7,17 @@ You have been given a set of User Stories in `./plans/`. Your job is to implemen
 # Before You Start - Learn from Previous Attempts
 
 1. **Check for previous reports**: Look for `./plans/LAST_RUN_REPORT.md`
-   
+
 2. **If report exists, assess relevance**:
-   
+
    a. Read the **Status** field:
       - Success = completed feature
       - Failed/Partial = unresolved issues
-   
+
    b. Read the **Original Task** or **Report Context**:
       - Is this about the SAME feature you're working on?
       - Or is this a DIFFERENT, unrelated feature?
-   
+
    c. **Use report appropriately**:
       - **Same feature + Failed**: Focus on "Issues Found" and "Suggested Fixes" - fix these first
       - **Same feature + Success**: Review code, build upon it if extending the feature

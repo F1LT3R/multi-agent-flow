@@ -1,181 +1,60 @@
-# Quick Start - Test Your Multi-Agent Flow
+# Quick Start
 
-The `agent-flow` command is now available globally! Follow these steps to test:
+## Prerequisites
 
-## Step 1: Set Your API Key
+**Docker is required** - agent-flow runs AI agents in isolated containers for safety.
+
+1. Install Docker Desktop: https://www.docker.com/products/docker-desktop
+2. Start Docker
+3. Verify: `docker info` should run without errors
+
+Without Docker, agent-flow will exit with an error.
+
+## Test the Calculator Example
 
 ```bash
-# In the multi-agent-flow repo root
-echo "OPENAI_API_KEY=sk-your-actual-key-here" > .env
-```
+# 1. Create a fresh test directory
+mkdir ~/test-calc
+cd ~/test-calc
 
-## Step 2: Initialize a Test Project
-
-```bash
-# Create test directory
-mkdir ../test-agent-project
-cd ../test-agent-project
-
-# Initialize
+# 2. Initialize the project
 agent-flow init
-```
 
-## Step 3: Add API Key to Test Project
+# 3. Add your OpenAI API key
+echo "OPENAI_API_KEY=sk-your-key-here" > .env
 
-```bash
-echo "OPENAI_API_KEY=sk-your-actual-key-here" > .env
-```
-
-## Step 4: Run Without Docker First (Recommended)
-
-Test the basic flow without Docker complexity:
-
-```bash
-# Note: You MUST be in the test project directory (not the multi-agent-flow repo)
-cd ../test-agent-project  # if not already there
-
-SKIP_DOCKER=true agent-flow run "Create a simple hello.js file that exports a greet function"
-```
-
-**What you'll see:**
-- MCP servers starting on ports 3100-3103
-- Each agent executing in sequence
-- Real-time streaming of agent thoughts (gray text)
-- Tool calls displayed (yellow with 🔧)
-- Token usage after each turn
-- Final summary
-
-**What gets created:**
-- `./plans/USER_STORIES_*.md` - Requirements
-- `./project/hello.js` - Generated code
-- `./traces/` - Complete execution traces
-
-## Step 5: Run With Docker (Full Isolation)
-
-Now test with Docker:
-
-```bash
-# Make sure Docker is running
-docker ps
-
-# Run with Docker
+# 4. Run it
 agent-flow run "Build a calculator with add, subtract, multiply, divide"
+
+# 5. Check the output
+ls project/        # Your code
+ls tests/          # Ratcheted tests
+ls plans/          # User stories and reports
+ls traces/         # Agent execution logs
 ```
 
-**What you'll see:**
-- Docker image building (first time only)
-- Container starting
-- Same streaming output as before
-- Container stopping at end
+## What to Expect
 
-**Verify file ownership:**
-```bash
-ls -la project/
-# Should show YOUR username, not root
-```
+- Agents will write user stories, generate code, create tests, and review
+- If review fails, it will reflow and try again (up to 3 times)
+- When successful, code and tests get "ratcheted" (saved permanently)
+- Check `./traces/` to see what each agent did
 
-## Step 6: Explore the Results
-
-```bash
-# View user stories
-cat plans/USER_STORIES_*.md
-
-# View generated code
-cat project/*.js
-
-# View traces (pick any file)
-ls traces/
-cat traces/2024-*-GENERATE_CODE-r1-t1.md
-```
-
-## Step 7: Review Traces
-
-Traces show everything that happened:
+## Run Again (Test Iteration)
 
 ```bash
-# List all traces
-ls -lt traces/
+# Try a different feature
+agent-flow run "Build a todo list app"
 
-# View a specific agent's first turn
-cat traces/*-WRITE_USER_STORIES-r1-t1.md
-
-# See what code was generated
-cat traces/*-GENERATE_CODE-r1-*.md
+# Or iterate on the calculator
+agent-flow run "Add scientific functions to the calculator"
 ```
 
-## Common Issues
-
-### "OPENAI_API_KEY environment variable is required"
-```bash
-# Make sure .env exists in your test project
-cat .env
-# Should show: OPENAI_API_KEY=sk-...
-```
-
-### "Docker not available"
-```bash
-# Start Docker Desktop (Mac) or docker service (Linux)
-docker ps
-
-# Or skip Docker for testing
-SKIP_DOCKER=true agent-flow run "..."
-```
-
-### "Port already in use"
-```bash
-# Find what's using the ports
-lsof -i :3100-3103
-
-# Kill the processes or change ports in .env
-```
-
-## Expected Behavior
-
-### Without Docker (SKIP_DOCKER=true)
-- ⚡ Faster (no container overhead)
-- ✅ All features work
-- ⚠️ No isolation (agents run directly on host)
-- ✅ File ownership correct
-
-### With Docker
-- 🐳 First run slower (builds image)
-- ✅ Full isolation
-- ✅ Agents in containers
-- ✅ File ownership correct (UID/GID mapping)
-- 🔒 More secure
-
-## Success Indicators
-
-You'll know it's working when:
-
-1. ✅ MCP servers start without errors
-2. ✅ Agents execute sequentially  
-3. ✅ You see real-time streaming output
-4. ✅ Files appear in `./project/`
-5. ✅ Traces appear in `./traces/`
-6. ✅ You can read/edit generated files
-
-## Try Different Prompts
+## Skip Reflow Prompts
 
 ```bash
-# Simple
-agent-flow run "Create a fibonacci function"
-
-# Medium complexity
-agent-flow run "Build a JSON config file reader with validation"
-
-# Complex
-agent-flow run "Create a CLI todo app with add, list, complete, delete commands"
+# Auto-approve reflowing without asking
+agent-flow run "your task" --yes
 ```
 
-## Next Steps
-
-After successful test drive:
-
-1. Review traces to understand agent behavior
-2. Customize prompts in `./prompts/`
-3. Adjust agent settings in `agent-flow.config.mjs`
-4. Try the resume feature (Ctrl+C then `agent-flow resume`)
-
-Have fun! 🚀
-
+That's it!

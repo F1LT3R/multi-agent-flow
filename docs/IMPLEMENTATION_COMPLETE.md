@@ -24,7 +24,7 @@
 - Health check waiting
 - Environment variable passing (API keys)
 - Graceful shutdown on completion/error
-- Fallback: `SKIP_DOCKER=true` to run without Docker
+- Docker is mandatory for safety
 
 ### 4. Configuration Updates ✅
 - **File**: `agent/core/config-loader.mjs`
@@ -99,17 +99,11 @@ Creating a calculator module with basic operations...
 
 ## How to Use
 
-### Quick Start (No Docker)
+### Quick Start
 ```bash
 cd multi-agent-flow
 npm install
-SKIP_DOCKER=true node agent/cli.mjs init
-# Add OPENAI_API_KEY to .env
-SKIP_DOCKER=true node agent/cli.mjs run "test description"
-```
 
-### Full Docker Mode
-```bash
 # Ensure Docker is running
 docker ps
 

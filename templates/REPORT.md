@@ -22,7 +22,7 @@ The flow has finished (successfully or not). You need to create a detailed repor
 4. Save your report to TWO files:
    - `./plans/LAST_RUN_REPORT.md` (overwrites any previous report - this is the canonical version agents will read)
    - `./plans/REPORT_{timestamp}_run-{flowRunCount}.md` (archived copy for history tracking)
-   
+
    For the timestamp, use current date/time in format: `YYYY-MM-DD_HH-MM-SS` (e.g., `2024-11-26_15-30-45`)
    For the run count, use the current flow run number
 

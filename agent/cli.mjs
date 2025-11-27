@@ -51,7 +51,7 @@ program
 
 			// Create config file
 			spinner.start('Creating config file...')
-			
+
 			try {
 				await ConfigLoader.createDefaultConfig(projectRoot)
 				spinner.succeed('Config file created: agent-flow.config.mjs')
@@ -65,7 +65,7 @@ program
 
 		// Copy template files to user's prompts directory
 		spinner.start('Copying prompt templates...')
-		
+
 		const promptFiles = [
 			'WRITE_USER_STORIES.md',
 			'GENERATE_CODE.md',
@@ -86,13 +86,13 @@ program
 		try {
 			// Check if templates directory exists
 			await fs.access(templatesDir)
-			
+
 			// Copy each template file
 			let copiedCount = 0
 			for (const file of promptFiles) {
 				const sourcePath = path.join(templatesDir, file)
 				const destPath = path.join(userPromptsDir, file)
-				
+
 				try {
 					// Check if destination already exists
 					await fs.access(destPath)
@@ -103,7 +103,7 @@ program
 					copiedCount++
 				}
 			}
-			
+
 			if (copiedCount === promptFiles.length) {
 				spinner.succeed('Prompt templates copied')
 			} else if (copiedCount > 0) {
@@ -118,7 +118,7 @@ program
 
 			// Create .env file if it doesn't exist
 			spinner.start('Setting up environment...')
-			
+
 			const envPath = path.join(projectRoot, '.env')
 			try {
 				await fs.access(envPath)
@@ -134,7 +134,6 @@ program
 		console.log('  3. Review agent-flow.config.mjs')
 		console.log('  4. Customize prompts in ./prompts/ (optional)')
 		console.log('  5. Run: agent-flow run "your feature description"\n')
-		console.log(chalk.gray('Note: Set SKIP_DOCKER=true to run without Docker isolation\n'))
 		} catch (error) {
 			console.error(chalk.red('❌ Initialization failed:'), error.message)
 			process.exit(1)
@@ -156,28 +155,32 @@ program
 		if (options.yes || options.autoApprove) {
 			process.env.AUTO_APPROVE = 'true'
 		}
-		
+
 		console.log(chalk.blue.bold('🤖 Starting Multi-Agent Flow\n'))
 
 		const mcpServers = []
-		
+
 		try {
-			// Check Docker if not skipped
-			if (process.env.SKIP_DOCKER !== 'true') {
-				const spinner = ora('Checking Docker...').start()
-				try {
-					const { exec } = await import('child_process')
-					const { promisify } = await import('util')
-					const execAsync = promisify(exec)
-					await execAsync('docker info')
-					spinner.succeed('Docker is running')
-				} catch (error) {
-					spinner.warn('Docker not available - running without isolation')
-					process.env.SKIP_DOCKER = 'true'
-					console.log(chalk.yellow('Tip: Install Docker for full isolation, or set SKIP_DOCKER=true\n'))
-				}
-			} else {
-				console.log(chalk.yellow('⚠ Running without Docker isolation (SKIP_DOCKER=true)\n'))
+			// Check Docker - REQUIRED for safety
+			const spinner = ora('Checking Docker...').start()
+			try {
+				const { exec } = await import('child_process')
+				const { promisify } = await import('util')
+				const execAsync = promisify(exec)
+				await execAsync('docker info')
+				spinner.succeed('Docker is running')
+			} catch (error) {
+				spinner.fail('Docker is not available')
+				console.error(chalk.red('\n❌ ERROR: Docker is required for safe agent execution\n'))
+				console.error(chalk.yellow('Why Docker is required:'))
+				console.error(chalk.gray('  - Agents run arbitrary code and can modify your system'))
+				console.error(chalk.gray('  - Docker isolation prevents system damage'))
+				console.error(chalk.gray('  - Running without Docker can brick your computer\n'))
+				console.error(chalk.cyan('To fix this:'))
+				console.error(chalk.gray('  1. Install Docker Desktop: https://www.docker.com/products/docker-desktop'))
+				console.error(chalk.gray('  2. Start Docker'))
+				console.error(chalk.gray('  3. Run this command again\n'))
+				process.exit(1)
 			}
 
 			// Load configuration
@@ -187,7 +190,7 @@ program
 
 			// Start MCP servers
 			console.log(chalk.cyan('Starting MCP servers...'))
-			
+
 			const fileOpsServer = new FileOpsServer(3100, process.cwd())
 			await fileOpsServer.start()
 			mcpServers.push(fileOpsServer)
@@ -287,7 +290,7 @@ program
 
 			// Start MCP servers
 			console.log(chalk.cyan('Starting MCP servers...'))
-			
+
 			const fileOpsServer = new FileOpsServer(3100, process.cwd())
 			await fileOpsServer.start()
 			mcpServers.push(fileOpsServer)
@@ -352,7 +355,7 @@ program
 
 			// Start MCP servers
 			console.log(chalk.cyan('Starting MCP servers...'))
-			
+
 			const fileOpsServer = new FileOpsServer(3100, process.cwd())
 			await fileOpsServer.start()
 			mcpServers.push(fileOpsServer)
@@ -380,7 +383,7 @@ program
 			console.log(chalk.blue.bold('\n--- Agent Result ---'))
 			console.log(`Success: ${result.success}`)
 			console.log(`Turns: ${result.turns.length}`)
-			
+
 			if (result.finalMessage) {
 				console.log(chalk.cyan('\nFinal Message:'))
 				console.log(result.finalMessage)
@@ -419,7 +422,7 @@ program
 			}
 
 			console.log(chalk.blue.bold('Available Checkpoints:\n'))
-			
+
 			for (const checkpoint of checkpoints) {
 				console.log(`${chalk.cyan(checkpoint.runId)}`)
 				console.log(`  Timestamp: ${checkpoint.timestamp.toISOString()}`)

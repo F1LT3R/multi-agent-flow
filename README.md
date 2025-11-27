@@ -27,9 +27,16 @@ Multi-Agent Flow automates software development through a sequence of specialize
 
 ### Prerequisites
 
-- Node.js 20+
-- OpenAI API key
-- Docker (optional, for full isolation)
+**Docker is required** - agent-flow runs AI agents in isolated containers for safety.
+
+1. **Docker Desktop**: https://www.docker.com/products/docker-desktop
+   - Install and start Docker
+   - Verify: `docker info` should run without errors
+   - **Why required**: Agents run arbitrary code. Docker isolation prevents system damage and can prevent bricking your computer.
+
+2. **Node.js 20+**: https://nodejs.org/
+
+3. **OpenAI API key**: https://platform.openai.com/api-keys
 
 ### Global Installation (Recommended)
 
@@ -94,7 +101,7 @@ agent-flow run "Build a simple todo list CLI app"
 ## CLI Commands
 
 ### `agent-flow init`
-Initialize agent-flow in the current directory. 
+Initialize agent-flow in the current directory.
 
 **What it creates:**
 - `./project/` - Where agents write code (writable workspace)
