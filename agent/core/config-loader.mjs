@@ -7,16 +7,17 @@ import { pathToFileURL } from 'url'
  */
 export const DEFAULT_CONFIG = {
 		paths: {
-			plans: './plans',
-			project: './project',
-			prompts: './prompts',  // User's custom prompts
-			tests: './tests',
-			artifacts: './tests/artifacts',
-			traces: './traces',  // Agent execution traces
+			stories: './stories',                   // User stories and reports
+			prompts: './prompts',                   // Agent prompts
+			tests: './tests',                       // Test files (at root)
+			artifacts: './tests/artifacts',         // Test artifacts
+			traces: './.flow/logs/traces',          // Execution traces (nested)
 		},
 	persistence: {
 		checkpoint_interval: 'every_turn',
-		log_dir: './.agent-flow/logs',
+		checkpoints: './.flow/logs/checkpoints',    // Checkpoints (nested)
+		log_dir: './.flow/logs',
+		snapshots: './.flow/snapshots',             // Snapshot versioning
 	},
 	sequences: {
 		development: {
@@ -118,7 +119,7 @@ export const DEFAULT_CONFIG = {
 
 /**
  * Configuration Loader
- * Loads and validates agent-flow.config.mjs
+ * Loads and validates flow.config.mjs
  */
 export class ConfigLoader {
 	constructor(projectRoot = process.cwd()) {
@@ -127,10 +128,10 @@ export class ConfigLoader {
 	}
 
 	/**
-	 * Load configuration from agent-flow.config.mjs
+	 * Load configuration from flow.config.mjs
 	 */
 	async load() {
-		const configPath = path.join(this.projectRoot, 'agent-flow.config.mjs')
+		const configPath = path.join(this.projectRoot, 'flow.config.mjs')
 
 		try {
 			// Check if config file exists
@@ -146,7 +147,7 @@ export class ConfigLoader {
 		} catch (error) {
 			if (error.code === 'ENOENT') {
 				// Config file doesn't exist, use defaults
-				console.warn('No agent-flow.config.mjs found, using default configuration')
+				console.warn('No flow.config.mjs found, using default configuration')
 				this.config = DEFAULT_CONFIG
 			} else {
 				throw new Error(`Failed to load config: ${error.message}`)
@@ -272,12 +273,12 @@ export class ConfigLoader {
 	 * Create default config file
 	 */
 	static async createDefaultConfig(projectRoot) {
-		const configPath = path.join(projectRoot, 'agent-flow.config.mjs')
+		const configPath = path.join(projectRoot, 'flow.config.mjs')
 
 		// Check if already exists
 		try {
 			await fs.access(configPath)
-			throw new Error('agent-flow.config.mjs already exists')
+			throw new Error('flow.config.mjs already exists')
 		} catch (error) {
 			if (error.code !== 'ENOENT') {
 				throw error

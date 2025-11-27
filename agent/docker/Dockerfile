@@ -13,18 +13,31 @@ RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 RUN (groupadd -g ${GID} agent 2>/dev/null || groupmod -n agent $(getent group ${GID} | cut -d: -f1)) && \
     useradd -u ${UID} -g ${GID} -m -s /bin/bash agent
 
-# Install MCP SDK globally (before switching to agent user)
-RUN npm install -g @modelcontextprotocol/sdk
+# Install MCP SDK and AI provider dependencies globally (before switching to agent user)
+RUN npm install -g @modelcontextprotocol/sdk openai @anthropic-ai/sdk @google/generative-ai
 
 # Set working directory
 WORKDIR /workspace
 
 # Create mount point directories
-RUN mkdir -p /workspace/project /workspace/tests /workspace/plans && \
-    chown -R agent:agent /workspace
+# /workspace/agent: Built-in agent code (stays in image)
+# /project: User's project will be mounted here
+RUN mkdir -p /workspace/agent /project && \
+    chown -R agent:agent /workspace /project
+
+# Copy agent code to container (AI providers and core modules)
+# Note: Build context is agent/, so paths are relative to that
+COPY ai-providers/ /workspace/agent/ai-providers/
+COPY core/ /workspace/agent/core/
+
+# Create package.json and install dependencies locally
+RUN cd /workspace/agent && \
+    echo '{"type":"module"}' > package.json && \
+    npm install @modelcontextprotocol/sdk openai @anthropic-ai/sdk @google/generative-ai && \
+    chown -R agent:agent /workspace/agent
 
 # Copy MCP client script (before switching to agent user)
-COPY mcp-client.mjs /usr/local/bin/mcp-client.mjs
+COPY docker/mcp-client.mjs /usr/local/bin/mcp-client.mjs
 RUN chmod 755 /usr/local/bin/mcp-client.mjs
 
 # Switch to agent user

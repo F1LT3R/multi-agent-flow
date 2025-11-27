@@ -27,7 +27,7 @@ Multi-Agent Flow automates software development through a sequence of specialize
 
 ### Prerequisites
 
-**Docker is required** - agent-flow runs AI agents in isolated containers for safety.
+**Docker is required** - flow runs AI agents in isolated containers for safety.
 
 1. **Docker Desktop**: https://www.docker.com/products/docker-desktop
    - Install and start Docker
@@ -43,10 +43,10 @@ Multi-Agent Flow automates software development through a sequence of specialize
 Install the CLI tool globally via npm:
 
 ```bash
-npm install -g multi-agent-flow
+npm install -g multi-flow
 ```
 
-This makes the `agent-flow` command available from any directory.
+This makes the `flow` command available from any directory.
 
 ### Local Development
 
@@ -55,7 +55,7 @@ If you're developing the tool itself:
 1. Clone the repository:
 ```bash
 git clone <repository-url>
-cd multi-agent-flow
+cd multi-flow
 ```
 
 2. Install dependencies:
@@ -76,9 +76,9 @@ mkdir my-app
 cd my-app
 ```
 
-2. **Initialize agent-flow**:
+2. **Initialize flow**:
 ```bash
-agent-flow init
+flow init
 ```
 
 This creates:
@@ -86,7 +86,7 @@ This creates:
 - `./tests/` - Permanent test storage
 - `./plans/` - User stories and requirements
 - `./prompts/` - Customizable agent instructions (copied from templates)
-- `agent-flow.config.mjs` - Configuration file
+- `flow.config.mjs` - Configuration file
 
 3. **Add your OpenAI API key** to `.env`:
 ```bash
@@ -95,25 +95,25 @@ OPENAI_API_KEY=your_key_here
 
 4. **Run a flow**:
 ```bash
-agent-flow run "Build a simple todo list CLI app"
+flow run "Build a simple todo list CLI app"
 ```
 
 ## CLI Commands
 
-### `agent-flow init`
-Initialize agent-flow in the current directory.
+### `flow init`
+Initialize flow in the current directory.
 
 **What it creates:**
 - `./project/` - Where agents write code (writable workspace)
 - `./tests/` - Permanent test storage (ratcheted tests)
 - `./plans/` - User stories and requirements
 - `./prompts/` - Customizable agent instructions (copied from templates)
-- `agent-flow.config.mjs` - Configuration file
-- `./.agent-flow/` - Runtime state (logs, checkpoints) - gitignored
+- `flow.config.mjs` - Configuration file
+- `./.flow/` - Runtime state (logs, checkpoints) - gitignored
 
 **Note:** The prompts are copied from the package's templates, so you can customize them without affecting the tool itself.
 
-### `agent-flow run <description>`
+### `flow run <description>`
 Run the full agent sequence with your feature description.
 
 Options:
@@ -121,31 +121,31 @@ Options:
 
 Example:
 ```bash
-agent-flow run "Create a REST API for managing users"
+flow run "Create a REST API for managing users"
 ```
 
-### `agent-flow resume [run-id]`
+### `flow resume [run-id]`
 Resume a flow from a checkpoint. If no run-id is provided, resumes the most recent checkpoint.
 
 Example:
 ```bash
-agent-flow resume run-2024-11-26T10-30-00-abc123
+flow resume run-2024-11-26T10-30-00-abc123
 ```
 
-### `agent-flow mode <agent-name> <input>`
+### `flow mode <agent-name> <input>`
 Run a single agent in isolation for debugging.
 
 Example:
 ```bash
-agent-flow mode GENERATE_CODE "Implement a User class with validation"
+flow mode GENERATE_CODE "Implement a User class with validation"
 ```
 
-### `agent-flow list`
+### `flow list`
 List all available checkpoints.
 
 ## Configuration
 
-Edit `agent-flow.config.mjs` to customize:
+Edit `flow.config.mjs` to customize:
 
 - **Agents** - Model selection, max turns, tool access, gatekeeper roles
 - **Sequences** - Agent order, reflow settings
@@ -218,7 +218,7 @@ Four HTTP-based MCP servers provide tools to agents:
 
 **NPM Package Structure** (installed globally):
 ```
-multi-agent-flow/
+multi-flow/
 ├── agent/                  # Orchestrator code (hidden from user)
 │   ├── cli.mjs            # Main CLI entry point
 │   ├── core/              # Core orchestration
@@ -229,11 +229,11 @@ multi-agent-flow/
 └── templates/             # Default prompt templates
 ```
 
-**User Project Structure** (created by `agent-flow init`):
+**User Project Structure** (created by `flow init`):
 ```
 my-app/
-├── agent-flow.config.mjs  # Your configuration
-├── .agent-flow/           # Runtime state (gitignored)
+├── flow.config.mjs  # Your configuration
+├── .flow/           # Runtime state (gitignored)
 │   ├── logs/              # Structured execution logs
 │   └── checkpoints/       # Saved states for resume
 ├── project/               # Agent workspace (writable)
@@ -266,11 +266,11 @@ Edit files in `./prompts/` to customize agent behavior:
 - `PLAN_TESTS.md`
 - etc.
 
-**Note:** These files are copied from the package's `templates/` directory during `agent-flow init`. You can safely modify them without affecting the tool. If you update multi-agent-flow, your custom prompts are preserved.
+**Note:** These files are copied from the package's `templates/` directory during `flow init`. You can safely modify them without affecting the tool. If you update multi-flow, your custom prompts are preserved.
 
 ### Custom Sequences
 
-Add new sequences in `agent-flow.config.mjs`:
+Add new sequences in `flow.config.mjs`:
 
 ```javascript
 sequences: {
@@ -296,12 +296,12 @@ MCP_INTERNET_PORT=4103
 ```
 
 ### "Agent exceeded MAX_TURNS"
-Increase `max_turns` for the agent in `agent-flow.config.mjs`.
+Increase `max_turns` for the agent in `flow.config.mjs`.
 
 ### Viewing Logs
-Structured logs are saved to `.agent-flow/logs/`:
+Structured logs are saved to `.flow/logs/`:
 ```bash
-cat .agent-flow/logs/session-*.jsonl | jq
+cat .flow/logs/session-*.jsonl | jq
 ```
 
 ## Development
@@ -313,7 +313,7 @@ npm test
 
 ### Adding a New Agent
 1. Create prompt file in `./prompts/NEW_AGENT.md`
-2. Add agent config to `agent-flow.config.mjs`
+2. Add agent config to `flow.config.mjs`
 3. Add agent to desired sequence
 
 ### Adding a New AI Provider

@@ -5,7 +5,7 @@
 	"type": "module",
 	"main": "agent/cli.mjs",
 	"bin": {
-		"agent-flow": "./agent/cli.mjs"
+		"flow": "./agent/cli.mjs"
 	},
 	"scripts": {
 		"test": "node --test agent/tests/*.test.mjs",

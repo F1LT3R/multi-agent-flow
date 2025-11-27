@@ -23,7 +23,7 @@ dotenv.config()
 const program = new Command()
 
 program
-	.name('agent-flow')
+	.name('flow')
 	.description('Multi-Agent Flow - AI agent orchestration system')
 	.version('0.1.0')
 
@@ -32,29 +32,47 @@ program
  */
 program
 	.command('init')
-	.description('Initialize agent-flow in current directory')
+	.description('Initialize flow in current directory')
 	.action(async () => {
 		console.log(chalk.blue.bold('🚀 Initializing Multi-Agent Flow...\n'))
 
 		try {
 			const projectRoot = process.cwd()
 
-			// Create directory structure
-			const spinner = ora('Creating directory structure...').start()
-			const dirs = ['project', 'tests', 'tests/artifacts', 'plans', 'prompts', 'traces']
+		// Create directory structure
+		const spinner = ora('Creating directory structure...').start()
+		const dirs = [
+			'stories',                  // User stories and reports
+			'prompts',                  // Agent prompts (will be populated)
+			'tests',                    // Tests at root level
+			'tests/artifacts',          // Test artifacts
+			'.flow',                    // Hidden orchestrator state
+			'.flow/logs',               // Logs parent
+			'.flow/logs/checkpoints',   // Checkpoints (nested)
+			'.flow/logs/traces',        // Traces (nested)
+			'.flow/snapshots',          // Snapshot versioning
+			'.flow/snapshots/previous', // Previous snapshot storage
+		]
 
-			for (const dir of dirs) {
-				await fs.mkdir(path.join(projectRoot, dir), { recursive: true })
-			}
+		for (const dir of dirs) {
+			await fs.mkdir(path.join(projectRoot, dir), { recursive: true })
+		}
 
-			spinner.succeed('Directory structure created')
+		// Create current symlink pointing to project root
+		try {
+			await fs.symlink('../../', path.join(projectRoot, '.flow/snapshots/current'), 'dir')
+		} catch (error) {
+			// Symlink might already exist, ignore
+		}
+
+		spinner.succeed('Directory structure created')
 
 			// Create config file
 			spinner.start('Creating config file...')
 
 			try {
 				await ConfigLoader.createDefaultConfig(projectRoot)
-				spinner.succeed('Config file created: agent-flow.config.mjs')
+				spinner.succeed('Config file created: flow.config.mjs')
 			} catch (error) {
 				if (error.message.includes('already exists')) {
 					spinner.info('Config file already exists')
@@ -131,9 +149,9 @@ program
 		console.log(chalk.yellow('Next steps:'))
 		console.log('  1. Add your OpenAI API key to .env')
 		console.log('  2. Ensure Docker is running (for agent isolation)')
-		console.log('  3. Review agent-flow.config.mjs')
+		console.log('  3. Review flow.config.mjs')
 		console.log('  4. Customize prompts in ./prompts/ (optional)')
-		console.log('  5. Run: agent-flow run "your feature description"\n')
+		console.log('  5. Run: flow run "your feature description"\n')
 		} catch (error) {
 			console.error(chalk.red('❌ Initialization failed:'), error.message)
 			process.exit(1)
@@ -188,21 +206,24 @@ program
 			await configLoader.load()
 			const config = configLoader.getConfig()
 
-			// Start MCP servers
-			console.log(chalk.cyan('Starting MCP servers...'))
+	// Start MCP servers
+	console.log(chalk.cyan('Starting MCP servers...'))
 
-			try {
-				const fileOpsServer = new FileOpsServer(3100, process.cwd())
-				await fileOpsServer.start()
-				mcpServers.push(fileOpsServer)
+	try {
+		// SECURITY: Root FileOpsServer to workspace root with multi-directory access
+		// Agents can write to: stories/, tests/, and root (for code)
+		// Agents CANNOT write to: .flow/, flow.config.mjs, prompts/
+		const fileOpsServer = new FileOpsServer(3100, process.cwd())
+		await fileOpsServer.start()
+		mcpServers.push(fileOpsServer)
 
-				const testRunnerServer = new TestRunnerServer(3101, config.paths.project)
-				await testRunnerServer.start()
-				mcpServers.push(testRunnerServer)
+			const testRunnerServer = new TestRunnerServer(3101, process.cwd())
+			await testRunnerServer.start()
+			mcpServers.push(testRunnerServer)
 
-				const analysisServer = new AnalysisServer(3102, config.paths.project)
-				await analysisServer.start()
-				mcpServers.push(analysisServer)
+			const analysisServer = new AnalysisServer(3102, process.cwd())
+			await analysisServer.start()
+			mcpServers.push(analysisServer)
 
 				const internetServer = new InternetServer(3103)
 				await internetServer.start()
@@ -226,12 +247,14 @@ program
 			const runner = new FlowRunner(config, options.sequence)
 			const result = await runner.run(description)
 
-			// Ratchet tests if successful
-			if (result.success) {
-				console.log(chalk.cyan('\nRatcheting tests to permanent storage...'))
-				const ratchet = new Ratchet(config)
-				await ratchet.ratchet()
-			}
+		// Create snapshot if successful
+		if (result.success) {
+			console.log(chalk.cyan('\nCreating snapshot of successful run...'))
+			const { SnapshotManager } = await import('./core/snapshot-manager.mjs')
+			const snapshotManager = new SnapshotManager(config.persistence.snapshots)
+			await snapshotManager.createSnapshot()
+			console.log(chalk.green('✓ Snapshot created'))
+		}
 
 			// Display summary
 			console.log(chalk.blue.bold('\n' + '='.repeat(60)))
@@ -288,7 +311,7 @@ program
 			const config = configLoader.getConfig()
 
 			// Get checkpoint
-			const checkpointManager = new CheckpointManager('./.agent-flow/checkpoints')
+			const checkpointManager = new CheckpointManager(config.persistence.checkpoints)
 			await checkpointManager.initialize()
 
 			if (!runId) {
@@ -426,7 +449,7 @@ program
 	.description('List available checkpoints')
 	.action(async () => {
 		try {
-			const checkpointManager = new CheckpointManager('./.agent-flow/checkpoints')
+			const checkpointManager = new CheckpointManager(config.persistence.checkpoints)
 			const checkpoints = await checkpointManager.list()
 
 			if (checkpoints.length === 0) {

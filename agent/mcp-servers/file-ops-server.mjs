@@ -11,83 +11,120 @@ const execAsync = promisify(exec)
  * Provides file system operations with chroot to ./project
  */
 export class FileOpsServer extends BaseMCPServer {
-	constructor(port, projectRoot) {
+	constructor(port, projectRoot, options = {}) {
 		super('FileOpsServer', port)
 		this.projectRoot = path.resolve(projectRoot)
+		this.workspaceRoot = options.workspaceRoot ? path.resolve(options.workspaceRoot) : path.dirname(this.projectRoot)
 		this._registerTools()
 	}
 
 	/**
-	 * Validate and resolve path within project root
+	 * Validate and resolve path with multi-directory access
+	 * SECURITY: Prevents path traversal attacks while blocking protected directories
+	 *
+	 * New structure (projectRoot = workspace root):
+	 * - ALLOWED: ./stories/, ./tests/, ./*.js (root code files), ./src/
+	 * - BLOCKED: ./.flow/, ./flow.config.mjs, ./prompts/, ../ (parent access)
 	 */
 	_validatePath(relativePath) {
+		// CRITICAL: Block absolute paths
+		if (relativePath.startsWith('/')) {
+			throw new Error(`Absolute paths not allowed: ${relativePath}`)
+		}
+
+		// CRITICAL: Block parent directory traversal
+		if (relativePath.includes('..')) {
+			throw new Error(`Parent directory access not allowed: ${relativePath}`)
+		}
+
+		// Resolve path (relative to workspace root = projectRoot)
 		const resolved = path.resolve(this.projectRoot, relativePath)
-		
-		if (!resolved.startsWith(this.projectRoot)) {
+
+		// Ensure resolved path is within project root
+		if (!resolved.startsWith(this.projectRoot + path.sep) && resolved !== this.projectRoot) {
 			throw new Error(`Path escape attempt: ${relativePath}`)
 		}
-		
+
+		// SECURITY: Block writes to protected directories and files
+		const normalizedPath = relativePath.replace(/^\.\//, '') // Remove leading ./
+
+		// Block .flow/ directory
+		if (normalizedPath.startsWith('.flow/') || normalizedPath === '.flow') {
+			throw new Error(`Access to .flow/ directory is not allowed: ${relativePath}`)
+		}
+
+		// Block flow.config.mjs
+		if (normalizedPath === 'flow.config.mjs') {
+			throw new Error(`Modifying flow.config.mjs is not allowed`)
+		}
+
+		// Block prompts/ directory writes (agents should not modify their own prompts)
+		if (normalizedPath.startsWith('prompts/') || normalizedPath === 'prompts') {
+			throw new Error(`Modifying prompts/ directory is not allowed: ${relativePath}`)
+		}
+
+		// Allow: stories/, tests/, root code files
 		return resolved
 	}
 
 	_registerTools() {
-		// Read file
-		this.registerTool(
-			'read_file',
-			'Read contents of a file',
-			{
-				type: 'object',
-				properties: {
-					path: { type: 'string', description: 'Path to file relative to project root' },
-				},
-				required: ['path'],
+	// Read file
+	this.registerTool(
+		'read_file',
+		'Read contents of a file. Paths are relative to /project root. Access code, stories, tests, prompts.',
+		{
+			type: 'object',
+			properties: {
+				path: { type: 'string', description: 'Relative path: "./file.js", "./stories/doc.md", "./tests/test.js", "./prompts/prompt.md"' },
 			},
-			async (args) => {
-				const filePath = this._validatePath(args.path)
-				const content = await fs.readFile(filePath, 'utf-8')
-				return content
-			}
-		)
+			required: ['path'],
+		},
+		async (args) => {
+			const filePath = this._validatePath(args.path)
+			const content = await fs.readFile(filePath, 'utf-8')
+			return content
+		}
+	)
 
-		// Write file
-		this.registerTool(
-			'write_file',
-			'Write contents to a file',
-			{
-				type: 'object',
-				properties: {
-					path: { type: 'string', description: 'Path to file relative to project root' },
-					content: { type: 'string', description: 'Content to write' },
-				},
-				required: ['path', 'content'],
+	// Write file
+	this.registerTool(
+		'write_file',
+		'Write contents to a file. Paths relative to /project root. Can write to: code files, stories, tests. CANNOT write to: .flow/, flow.config.mjs, prompts/',
+		{
+			type: 'object',
+			properties: {
+				path: { type: 'string', description: 'Relative path: "./file.js", "./stories/doc.md", "./tests/test.js"' },
+				content: { type: 'string', description: 'Content to write' },
 			},
-			async (args) => {
-				const filePath = this._validatePath(args.path)
-				await fs.mkdir(path.dirname(filePath), { recursive: true })
-				await fs.writeFile(filePath, args.content, 'utf-8')
-				return `File written: ${args.path}`
-			}
-		)
+			required: ['path', 'content'],
+		},
+		async (args) => {
+			const filePath = this._validatePath(args.path)
+			await fs.mkdir(path.dirname(filePath), { recursive: true })
+			await fs.writeFile(filePath, args.content, 'utf-8')
+			return `File written: ${args.path}`
+		}
+	)
 
 		// List directory
 		this.registerTool(
 			'list_directory',
-			'List contents of a directory',
+			'List contents of a directory. Supports project (.) and workspace dirs (../plans, ../tests)',
 			{
 				type: 'object',
 				properties: {
-					path: { type: 'string', description: 'Path to directory relative to project root', default: '.' },
+					path: { type: 'string', description: 'Path to directory: "." for project root, "../plans" for plans, "../tests" for tests', default: '.' },
 				},
 			},
 			async (args) => {
 				const dirPath = this._validatePath(args.path || '.')
 				const entries = await fs.readdir(dirPath, { withFileTypes: true })
-				
+
 				const items = entries.map((entry) => ({
 					name: entry.name,
 					type: entry.isDirectory() ? 'directory' : 'file',
 				}))
-				
+
 				return JSON.stringify(items, null, 2)
 			}
 		)
@@ -99,7 +136,7 @@ export class FileOpsServer extends BaseMCPServer {
 			{
 				type: 'object',
 				properties: {
-					path: { type: 'string', description: 'Path to file relative to project root' },
+					path: { type: 'string', description: 'Path to file: "./file.js" for project, "../plans/file.md" for plans, "../tests/file.js" for tests' },
 				},
 				required: ['path'],
 			},
@@ -117,8 +154,8 @@ export class FileOpsServer extends BaseMCPServer {
 			{
 				type: 'object',
 				properties: {
-					from: { type: 'string', description: 'Source path relative to project root' },
-					to: { type: 'string', description: 'Destination path relative to project root' },
+					from: { type: 'string', description: 'Source path' },
+					to: { type: 'string', description: 'Destination path' },
 				},
 				required: ['from', 'to'],
 			},
@@ -162,10 +199,10 @@ export class FileOpsServer extends BaseMCPServer {
 if (import.meta.url === `file://${process.argv[1]}`) {
 	const port = process.env.MCP_FILE_OPS_PORT || 3100
 	const projectRoot = process.env.PROJECT_ROOT || path.join(process.cwd(), 'project')
-	
+
 	const server = new FileOpsServer(port, projectRoot)
 	await server.start()
-	
+
 	// Graceful shutdown
 	process.on('SIGINT', async () => {
 		await server.stop()

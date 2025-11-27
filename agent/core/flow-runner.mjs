@@ -1,4 +1,5 @@
 import { AgentExecutor } from './agent-executor.mjs'
+import { DockerAgentExecutor } from './docker-agent-executor.mjs'
 import { MCPClient } from './mcp-client.mjs'
 import { CheckpointManager, createStateSnapshot, restoreStateFromSnapshot } from './checkpoint-manager.mjs'
 import { DockerManager } from './docker-manager.mjs'
@@ -14,17 +15,17 @@ export class FlowRunner {
 		this.config = config
 		this.sequenceName = sequenceName
 		this.sequence = config.sequences[sequenceName]
-		
+
 		if (!this.sequence) {
 			throw new Error(`Sequence '${sequenceName}' not found in configuration`)
 		}
 
 		this.mcpClient = new MCPClient()
 		this.checkpointManager = new CheckpointManager(
-			this.config.paths.checkpointDir || './.agent-flow/checkpoints'
+			this.config.persistence.checkpoints || './.flow/logs/checkpoints'
 		)
 		this.dockerManager = new DockerManager(config)
-		
+
 		this.state = {
 			sequenceName,
 			flowRunCount: 0,
@@ -62,6 +63,9 @@ export class FlowRunner {
 		try {
 			await this.dockerManager.startContainer()
 			await this.dockerManager.waitForHealthy()
+
+			// Validate VM isolation before running agents
+			await this._validateVMIsolation()
 		} catch (error) {
 			console.error(chalk.red('[Docker] Failed to start container:'), error.message)
 			throw error
@@ -150,16 +154,28 @@ export class FlowRunner {
 			console.log(chalk.blue(`Goal: ${agentConfig.goal}`))
 			console.log(chalk.blue(`${'='.repeat(60)}\n`))
 
-			// Prepare input for agent
-			const agentInput = this._prepareAgentInput(agentName, i)
+		// Prepare input for agent
+		const agentInput = this._prepareAgentInput(agentName, i)
 
-			// Execute agent with streaming callbacks
-			const executor = new AgentExecutor(agentConfig, this.mcpClient, {
+		// Execute agent inside Docker VM for maximum isolation
+		const mcpServerPorts = {
+			fileOps: process.env.MCP_FILE_OPS_PORT || 3100,
+			testRunner: process.env.MCP_TEST_RUNNER_PORT || 3101,
+			analysis: process.env.MCP_ANALYSIS_PORT || 3102,
+			internet: process.env.MCP_INTERNET_PORT || 3103,
+		}
+
+		const executor = new DockerAgentExecutor(
+			agentConfig,
+			this.dockerManager,
+			mcpServerPorts,
+			{
 				flowRunCount: this.state.flowRunCount,
 				tracesDir: this.config.paths.traces,
 				callbacks: this._createCallbacks(agentName),
-			})
-			const result = await executor.execute(agentInput)
+			}
+		)
+		const result = await executor.execute(agentInput)
 
 			// Save result
 			result.agentName = agentName
@@ -250,7 +266,7 @@ export class FlowRunner {
 		console.log(chalk.cyan(`\n--- Agent Summary ---`))
 		console.log(`Turns used: ${result.turns.length}`)
 		console.log(`Success: ${result.success ? chalk.green('✓') : chalk.red('✗')}`)
-		
+
 		if (result.tokenUsage) {
 			console.log(
 				`Tokens: ${result.tokenUsage.prompt_tokens || result.tokenUsage.prompt || 0} prompt + ${result.tokenUsage.completion_tokens || result.tokenUsage.completion || 0} completion = ${result.tokenUsage.total_tokens || result.tokenUsage.total || 0} total`
@@ -282,6 +298,48 @@ export class FlowRunner {
 				}
 			)
 		})
+	}
+
+	/**
+	 * Validate VM isolation before executing agents
+	 * SECURITY: Ensures Docker mounts are configured correctly
+	 */
+	async _validateVMIsolation() {
+		console.log(chalk.cyan('[Security] Validating VM isolation...'))
+
+		try {
+			// Test 1: Verify container is running
+			const inspect = await this.dockerManager.container.inspect()
+			if (!inspect.State.Running) {
+				throw new Error('Container is not running')
+			}
+
+		// Test 2: Verify mounts are present
+		const mounts = inspect.Mounts
+	const requiredMounts = [
+		{ path: '/project', mode: 'rw' },            // User project root
+	]
+		
+		for (const required of requiredMounts) {
+			const mount = mounts.find(m => m.Destination === required.path)
+			if (!mount) {
+				throw new Error(`Missing mount: ${required.path}`)
+			}
+			if (!mount.RW && required.mode === 'rw') {
+				throw new Error(`Mount ${required.path} should be writable but is read-only`)
+			}
+			if (mount.RW && required.mode === 'ro') {
+				throw new Error(`Mount ${required.path} should be read-only but is writable`)
+			}
+		}
+		
+	console.log(chalk.green('[Security] ✓ VM isolation validated'))
+	console.log(chalk.gray(`  - User project: /project (Read-Write)`))
+	console.log(chalk.gray(`  - Agent code: /workspace/agent (Built-in, isolated)`))
+		} catch (error) {
+			console.error(chalk.red('[Security] VM isolation validation failed:'), error.message)
+			throw new Error(`VM isolation validation failed: ${error.message}`)
+		}
 	}
 }
 

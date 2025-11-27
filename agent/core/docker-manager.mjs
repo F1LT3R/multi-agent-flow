@@ -30,16 +30,19 @@ export class DockerManager {
 
 		// Get the package root using this module's location
 		// __dirname is: /path/to/package/agent/core
-		// We need: /path/to/package/agent/docker
-		const dockerfilePath = path.join(__dirname, '..', 'docker')
+		// Build context: /path/to/package/agent (to include ai-providers, core, etc.)
+		// Dockerfile: /path/to/package/agent/docker/Dockerfile
+		const buildContext = path.join(__dirname, '..')
+		const dockerfilePath = path.join(buildContext, 'docker', 'Dockerfile')
 		const uid = os.userInfo().uid
 		const gid = os.userInfo().gid
 
-		console.log(`[Docker] Building from: ${dockerfilePath}`)
+		console.log(`[Docker] Building from context: ${buildContext}`)
+		console.log(`[Docker] Using Dockerfile: ${dockerfilePath}`)
 
 		try {
 			const { stdout, stderr } = await execAsync(
-				`docker build --build-arg UID=${uid} --build-arg GID=${gid} -t ${this.imageName} ${dockerfilePath}`,
+				`docker build --build-arg UID=${uid} --build-arg GID=${gid} -f ${dockerfilePath} -t ${this.imageName} ${buildContext}`,
 				{ maxBuffer: 10 * 1024 * 1024 }
 			)
 
@@ -97,24 +100,30 @@ export class DockerManager {
 			AttachStderr: true,
 			HostConfig: {
 				NetworkMode: 'host', // Access host MCP servers
-				Binds: [
-					`${path.join(projectRoot, 'project')}:/workspace/project:rw`,
-					`${path.join(projectRoot, 'tests')}:/workspace/tests:ro`,
-					`${path.join(projectRoot, 'plans')}:/workspace/plans:ro`,
-				],
+		Binds: [
+			// Mount strategy: Mount user project to /project, keep /workspace/agent intact
+			// - /project: User's project root (RW for code files)
+			// - /project/stories: User stories and reports (RW)
+			// - /project/tests: Test files (RW)
+			// - /project/prompts: Agent instructions (RO)
+			// - /workspace/agent: Built-in agent code (NOT mounted, stays from image)
+			`${projectRoot}:/project:rw`,                                    // User project root
+		],
 			},
-			Env: [
-				// API Keys
-				`OPENAI_API_KEY=${process.env.OPENAI_API_KEY || ''}`,
-				`ANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY || ''}`,
-				`GOOGLE_AI_API_KEY=${process.env.GOOGLE_AI_API_KEY || ''}`,
-				`XAI_API_KEY=${process.env.XAI_API_KEY || ''}`,
-				// MCP Server Ports
-				`MCP_FILE_OPS_PORT=${process.env.MCP_FILE_OPS_PORT || 3100}`,
-				`MCP_TEST_RUNNER_PORT=${process.env.MCP_TEST_RUNNER_PORT || 3101}`,
-				`MCP_ANALYSIS_PORT=${process.env.MCP_ANALYSIS_PORT || 3102}`,
-				`MCP_INTERNET_PORT=${process.env.MCP_INTERNET_PORT || 3103}`,
-			],
+		Env: [
+			// API Keys
+			`OPENAI_API_KEY=${process.env.OPENAI_API_KEY || ''}`,
+			`ANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY || ''}`,
+			`GOOGLE_AI_API_KEY=${process.env.GOOGLE_AI_API_KEY || ''}`,
+			`XAI_API_KEY=${process.env.XAI_API_KEY || ''}`,
+			// MCP Server Ports
+			`MCP_FILE_OPS_PORT=${process.env.MCP_FILE_OPS_PORT || 3100}`,
+			`MCP_TEST_RUNNER_PORT=${process.env.MCP_TEST_RUNNER_PORT || 3101}`,
+			`MCP_ANALYSIS_PORT=${process.env.MCP_ANALYSIS_PORT || 3102}`,
+			`MCP_INTERNET_PORT=${process.env.MCP_INTERNET_PORT || 3103}`,
+			// MCP Host (for container to reach host MCP servers)
+			`MCP_HOST=${this._getHostIP()}`,
+		],
 		}
 
 		try {
@@ -164,21 +173,72 @@ export class DockerManager {
 			AttachStderr: true,
 		})
 
-		const stream = await exec.start()
+		const stream = await exec.start({ Detach: false, Tty: false })
 
 		return new Promise((resolve, reject) => {
-			let output = ''
+			const chunks = []
 
 			stream.on('data', (chunk) => {
-				output += chunk.toString()
+				chunks.push(chunk)
 			})
 
 			stream.on('end', () => {
-				resolve(output)
+				// Docker uses multiplexed streams with 8-byte headers
+				// Format: [STREAM_TYPE, 0, 0, 0, SIZE_1, SIZE_2, SIZE_3, SIZE_4, ...DATA...]
+				// We need to demultiplex to get clean output
+				const buffer = Buffer.concat(chunks)
+				let output = ''
+				let offset = 0
+
+				while (offset < buffer.length) {
+					// Check if we have enough bytes for header
+					if (offset + 8 > buffer.length) {
+						break
+					}
+
+					// Read header
+					const streamType = buffer[offset]
+					const payloadSize = buffer.readUInt32BE(offset + 4)
+
+					// Move past header
+					offset += 8
+
+					// Extract payload
+					if (offset + payloadSize <= buffer.length) {
+						const payload = buffer.slice(offset, offset + payloadSize)
+						output += payload.toString('utf-8')
+						offset += payloadSize
+					} else {
+						break
+					}
+				}
+
+				resolve(output.trim())
 			})
 
 			stream.on('error', reject)
 		})
+	}
+
+	/**
+	 * Get host IP address for container to reach host services
+	 */
+	_getHostIP() {
+		// Try to get the local network IP
+		const { networkInterfaces } = os
+		const nets = networkInterfaces()
+		
+		for (const name of Object.keys(nets)) {
+			for (const net of nets[name]) {
+				// Skip internal and non-IPv4 addresses
+				if (net.family === 'IPv4' && !net.internal) {
+					return `http://${net.address}`
+				}
+			}
+		}
+		
+		// Fallback to host.docker.internal (works on some Docker Desktop versions)
+		return 'http://host.docker.internal'
 	}
 
 	/**

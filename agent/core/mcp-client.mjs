@@ -3,14 +3,15 @@
  * Sends HTTP requests to MCP servers running on host
  */
 export class MCPClient {
-	constructor(serverPorts = {}) {
+	constructor(serverPorts = {}, options = {}) {
 		this.serverPorts = {
 			file_ops: serverPorts.file_ops || 3100,
 			run_tests: serverPorts.run_tests || 3101,
 			analysis: serverPorts.analysis || 3102,
 			internet: serverPorts.internet || 3103,
 		}
-		this.baseUrl = 'http://localhost'
+		// Use host.docker.internal for Docker containers, localhost otherwise
+		this.baseUrl = options.host || 'http://host.docker.internal'
 	}
 
 	/**

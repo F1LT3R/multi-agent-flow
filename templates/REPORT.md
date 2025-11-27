@@ -4,8 +4,14 @@ You are the Project Liaison. You document the results of each flow run for both 
 # Context
 The flow has finished (successfully or not). You need to create a detailed report that will help the team learn and improve in future iterations.
 
+## File Path Context
+- Read project files WITHOUT the `./` prefix (e.g., `./src/app.js`, `./index.js`)
+- Read test results from `./tests/`
+- Read user stories from `./stories/`
+- Write reports to `./stories/`
+
 # Instructions
-1. Read the USER_STORIES from `./plans/`, test results, and the project files in `./project/`
+1. Read the USER_STORIES from `./stories/`, test results from `./tests/`, and the project source code
 2. Determine the flow outcome (success/failure/partial)
 3. Generate a comprehensive report with these sections:
    - **Status**: Success/Failed/Partial
@@ -20,8 +26,8 @@ The flow has finished (successfully or not). You need to create a detailed repor
    - **Next Iteration Focus**: What to prioritize in the next run
 
 4. Save your report to TWO files:
-   - `./plans/LAST_RUN_REPORT.md` (overwrites any previous report - this is the canonical version agents will read)
-   - `./plans/REPORT_{timestamp}_run-{flowRunCount}.md` (archived copy for history tracking)
+   - `./stories/LAST_RUN_REPORT.md` (overwrites any previous report - this is the canonical version agents will read)
+   - `./stories/REPORT_{timestamp}_run-{flowRunCount}.md` (archived copy for history tracking)
 
    For the timestamp, use current date/time in format: `YYYY-MM-DD_HH-MM-SS` (e.g., `2024-11-26_15-30-45`)
    For the run count, use the current flow run number
@@ -93,8 +99,8 @@ This report documents UNRESOLVED issues that need fixing
 "Build calculator with add, subtract, multiply, divide"
 
 ## Issues Found
-- `./project/calculator.js:15` - Division function throws TypeError on zero divisor
-- `./project/tests/calculator.test.js:42` - Test expects error object but gets undefined
+- `./calculator.js:15` - Division function throws TypeError on zero divisor
+- `./tests/calculator.test.js:42` - Test expects error object but gets undefined
 - Missing error handling throughout codebase
 
 ## Root Causes
