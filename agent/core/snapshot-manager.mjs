@@ -16,18 +16,42 @@ export class SnapshotManager {
 	 * Copies: code files, tests, stories, prompts, config
 	 */
 	async createSnapshot() {
-		const timestamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, -5)
+		// Format: YYYY-MM-DD_HH-MM-SS (underscore between date and time, date first)
+		const now = new Date()
+		const datePart = [
+			now.getFullYear(),
+			String(now.getMonth() + 1).padStart(2, '0'),
+			String(now.getDate()).padStart(2, '0')
+		].join('-')
+
+		const timePart = [
+			String(now.getHours()).padStart(2, '0'),
+			String(now.getMinutes()).padStart(2, '0'),
+			String(now.getSeconds()).padStart(2, '0')
+		].join('-')
+
+		const timestamp = `${datePart}_${timePart}`
 		const snapshotPath = path.join(this.snapshotDir, timestamp)
-		
-		// Get workspace root (parent of .flow)
-		const workspaceRoot = path.dirname(this.snapshotDir)
-		
+
+		// Get workspace root (parent of .flow's parent)
+		// this.snapshotDir = .flow/snapshots -> parent is .flow -> parent is workspace root
+		const workspaceRoot = path.dirname(path.dirname(this.snapshotDir))
+
 		// Copy workspace to snapshot
 		await this._copyWorkspace(workspaceRoot, snapshotPath)
-		
+
+		// Update current symlink to point to this snapshot
+		const currentLink = path.join(this.snapshotDir, 'current')
+		try {
+			await fs.unlink(currentLink) // Remove old symlink if exists
+		} catch {
+			// Ignore if doesn't exist
+		}
+		await fs.symlink(timestamp, currentLink)
+
 		// Update previous/ with current snapshot
 		await this._updatePrevious(snapshotPath)
-		
+
 		return timestamp
 	}
 
@@ -36,19 +60,20 @@ export class SnapshotManager {
 	 */
 	async restoreSnapshot(snapshotName) {
 		const snapshotPath = path.join(this.snapshotDir, snapshotName)
-		
+
 		// Verify snapshot exists
 		try {
 			await fs.access(snapshotPath)
 		} catch {
 			throw new Error(`Snapshot not found: ${snapshotName}`)
 		}
-		
-		const workspaceRoot = path.dirname(this.snapshotDir)
-		
+
+		// Get workspace root (parent of .flow's parent)
+		const workspaceRoot = path.dirname(path.dirname(this.snapshotDir))
+
 		// Clear current workspace (except .flow)
 		await this._clearWorkspace(workspaceRoot)
-		
+
 		// Copy snapshot back to workspace
 		await this._copyWorkspace(snapshotPath, workspaceRoot)
 	}
@@ -78,21 +103,21 @@ export class SnapshotManager {
 		if (source.includes('/.flow/') || source.endsWith('/.flow')) {
 			return // Don't copy anything from inside .flow
 		}
-		
+
 		await fs.mkdir(dest, { recursive: true })
-		
+
 		const entries = await fs.readdir(source, { withFileTypes: true })
-		
+
 		for (const entry of entries) {
 			const srcPath = path.join(source, entry.name)
 			const destPath = path.join(dest, entry.name)
-			
+
 			// Skip directories and files that shouldn't be snapshotted
 			const excludes = ['.flow', '.agent-flow', 'node_modules', '.git', '.DS_Store']
 			if (excludes.includes(entry.name)) {
 				continue
 			}
-			
+
 			if (entry.isDirectory()) {
 				await this._copyWorkspace(srcPath, destPath)
 			} else {
@@ -111,7 +136,7 @@ export class SnapshotManager {
 		} catch {
 			// Ignore if doesn't exist
 		}
-		
+
 		// Copy snapshot to previous
 		await this._copyWorkspace(snapshotPath, this.previousDir)
 	}
@@ -121,12 +146,12 @@ export class SnapshotManager {
 	 */
 	async _clearWorkspace(workspaceRoot) {
 		const entries = await fs.readdir(workspaceRoot, { withFileTypes: true })
-		
+
 		for (const entry of entries) {
 			if (entry.name === '.flow') {
 				continue // Don't delete .flow directory
 			}
-			
+
 			const entryPath = path.join(workspaceRoot, entry.name)
 			await fs.rm(entryPath, { recursive: true, force: true })
 		}

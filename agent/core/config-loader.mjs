@@ -7,11 +7,11 @@ import { pathToFileURL } from 'url'
  */
 export const DEFAULT_CONFIG = {
 		paths: {
-			stories: './stories',                   // User stories and reports
-			prompts: './prompts',                   // Agent prompts
-			tests: './tests',                       // Test files (at root)
-			artifacts: './tests/artifacts',         // Test artifacts
-			traces: './.flow/logs/traces',          // Execution traces (nested)
+			tests: './tests',                       // Test files (used by ratchet)
+			artifacts: './tests/artifacts',         // Test artifacts (used by ratchet)
+			traces: './.flow/logs/traces',          // Execution traces (used by flow-runner)
+			// Removed: stories (hardcoded to './stories' where needed)
+			// Removed: prompts (specified per-agent in config.agents[].prompt)
 		},
 	persistence: {
 		checkpoint_interval: 'every_turn',

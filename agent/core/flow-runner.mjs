@@ -5,6 +5,8 @@ import { CheckpointManager, createStateSnapshot, restoreStateFromSnapshot } from
 import { DockerManager } from './docker-manager.mjs'
 import readline from 'readline'
 import chalk from 'chalk'
+import fs from 'fs/promises'
+import path from 'path'
 
 /**
  * Flow Runner
@@ -185,6 +187,11 @@ export class FlowRunner {
 			// Save message history for potential reflow
 			this.state.messageHistories[agentName] = executor.getMessages()
 
+			// REPORT agent: Orchestrator saves the report files
+			if (agentName === 'REPORT' && result.finalMessage) {
+				await this._saveReportFiles(result.finalMessage)
+			}
+
 			// Checkpoint after each agent
 			if (this.config.persistence?.checkpoint_interval === 'every_turn') {
 				await this.checkpointManager.save(runId, createStateSnapshot(this.state))
@@ -301,6 +308,43 @@ export class FlowRunner {
 	}
 
 	/**
+	 * Save REPORT agent output to files (orchestrator responsibility)
+	 */
+	async _saveReportFiles(reportContent) {
+		const now = new Date()
+		const datePart = [
+			now.getFullYear(),
+			String(now.getMonth() + 1).padStart(2, '0'),
+			String(now.getDate()).padStart(2, '0')
+		].join('-')
+
+		const timePart = [
+			String(now.getHours()).padStart(2, '0'),
+			String(now.getMinutes()).padStart(2, '0'),
+			String(now.getSeconds()).padStart(2, '0')
+		].join('-')
+
+		const timestamp = `${datePart}_${timePart}`
+		const runNumber = this.state.flowRunCount
+
+		// Ensure stories directory exists
+		const storiesDir = path.join(process.cwd(), 'stories')
+		await fs.mkdir(storiesDir, { recursive: true })
+
+		// Save to LAST_RUN_REPORT.md (canonical version)
+		const lastRunPath = path.join(storiesDir, 'LAST_RUN_REPORT.md')
+		await fs.writeFile(lastRunPath, reportContent, 'utf-8')
+
+		// Save to timestamped archive
+		const archivedPath = path.join(storiesDir, `${timestamp}_REPORT_r${runNumber}.md`)
+		await fs.writeFile(archivedPath, reportContent, 'utf-8')
+
+		console.log(chalk.green(`\n[Orchestrator] Report saved:`))
+		console.log(chalk.gray(`  - ${lastRunPath}`))
+		console.log(chalk.gray(`  - ${archivedPath}`))
+	}
+
+	/**
 	 * Validate VM isolation before executing agents
 	 * SECURITY: Ensures Docker mounts are configured correctly
 	 */
@@ -319,7 +363,7 @@ export class FlowRunner {
 	const requiredMounts = [
 		{ path: '/project', mode: 'rw' },            // User project root
 	]
-		
+
 		for (const required of requiredMounts) {
 			const mount = mounts.find(m => m.Destination === required.path)
 			if (!mount) {
@@ -332,7 +376,7 @@ export class FlowRunner {
 				throw new Error(`Mount ${required.path} should be read-only but is writable`)
 			}
 		}
-		
+
 	console.log(chalk.green('[Security] ✓ VM isolation validated'))
 	console.log(chalk.gray(`  - User project: /project (Read-Write)`))
 	console.log(chalk.gray(`  - Agent code: /workspace/agent (Built-in, isolated)`))

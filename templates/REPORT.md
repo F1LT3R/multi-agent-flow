@@ -25,12 +25,14 @@ The flow has finished (successfully or not). You need to create a detailed repor
    - **Manual Actions**: Anything the user needs to do (e.g., set API keys, install dependencies)
    - **Next Iteration Focus**: What to prioritize in the next run
 
-4. Save your report to TWO files:
-   - `./stories/LAST_RUN_REPORT.md` (overwrites any previous report - this is the canonical version agents will read)
-   - `./stories/REPORT_{timestamp}_run-{flowRunCount}.md` (archived copy for history tracking)
+4. **Return the complete report as your final message**
 
-   For the timestamp, use current date/time in format: `YYYY-MM-DD_HH-MM-SS` (e.g., `2024-11-26_15-30-45`)
-   For the run count, use the current flow run number
+   IMPORTANT: Do NOT attempt to save files yourself.
+   The orchestrator will automatically save your report to:
+   - `./stories/LAST_RUN_REPORT.md` (canonical version for future agents)
+   - `./stories/{timestamp}_REPORT_r{flowRunCount}.md` (timestamped archive)
+
+   Simply return the full markdown report content. The orchestrator handles all file operations.
 
 # Important: Report Context for Future Runs
 

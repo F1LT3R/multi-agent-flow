@@ -119,9 +119,22 @@ export class CheckpointManager {
 	 * Generate a unique run ID
 	 */
 	static generateRunId() {
-		const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+		// Format: YYYY-MM-DD_HH-MM-SS (underscore between date and time, date first)
+		const now = new Date()
+		const datePart = [
+			now.getFullYear(),
+			String(now.getMonth() + 1).padStart(2, '0'),
+			String(now.getDate()).padStart(2, '0')
+		].join('-')
+
+		const timePart = [
+			String(now.getHours()).padStart(2, '0'),
+			String(now.getMinutes()).padStart(2, '0'),
+			String(now.getSeconds()).padStart(2, '0')
+		].join('-')
+
 		const random = crypto.randomBytes(4).toString('hex')
-		return `run-${timestamp}-${random}`
+		return `${datePart}_${timePart}_run_${random}`
 	}
 
 	/**

@@ -23,17 +23,26 @@ export class TraceRecorder {
 	async recordTurn(agentName, flowRun, turn, data) {
 		await this.initialize()
 
-		const timestamp = new Date()
-			.toISOString()
-			.replace(/:/g, '-')
-			.replace(/\..+/, '')
-		
-		const filename = `${timestamp}-${agentName}-r${flowRun}-t${turn}.md`
+		// Format: YYYY-MM-DD_HH-MM-SS (underscore between date and time, date first)
+		const now = new Date()
+		const datePart = [
+			now.getFullYear(),
+			String(now.getMonth() + 1).padStart(2, '0'),
+			String(now.getDate()).padStart(2, '0')
+		].join('-')
+
+		const timePart = [
+			String(now.getHours()).padStart(2, '0'),
+			String(now.getMinutes()).padStart(2, '0'),
+			String(now.getSeconds()).padStart(2, '0')
+		].join('-')
+
+		const filename = `${datePart}_${timePart}_${agentName}_r${flowRun}-t${turn}.md`
 		const filepath = path.join(this.tracesDir, filename)
-		
+
 		const markdown = this._formatTrace(agentName, flowRun, turn, data)
 		await fs.writeFile(filepath, markdown, 'utf-8')
-		
+
 		return filepath
 	}
 

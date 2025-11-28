@@ -249,11 +249,16 @@ program
 
 		// Create snapshot if successful
 		if (result.success) {
-			console.log(chalk.cyan('\nCreating snapshot of successful run...'))
-			const { SnapshotManager } = await import('./core/snapshot-manager.mjs')
-			const snapshotManager = new SnapshotManager(config.persistence.snapshots)
-			await snapshotManager.createSnapshot()
-			console.log(chalk.green('✓ Snapshot created'))
+			try {
+				console.log(chalk.cyan('\nCreating snapshot of successful run...'))
+				const { SnapshotManager } = await import('./core/snapshot-manager.mjs')
+				const snapshotManager = new SnapshotManager(config.persistence.snapshots)
+				const snapshotTimestamp = await snapshotManager.createSnapshot()
+				console.log(chalk.green(`✓ Snapshot created: ${snapshotTimestamp}`))
+			} catch (error) {
+				console.error(chalk.red(`✗ Failed to create snapshot: ${error.message}`))
+				console.error(chalk.gray('Continuing without snapshot...'))
+			}
 		}
 
 			// Display summary
@@ -331,11 +336,11 @@ program
 			await fileOpsServer.start()
 			mcpServers.push(fileOpsServer)
 
-			const testRunnerServer = new TestRunnerServer(3101, config.paths.project)
+			const testRunnerServer = new TestRunnerServer(3101, process.cwd())
 			await testRunnerServer.start()
 			mcpServers.push(testRunnerServer)
 
-			const analysisServer = new AnalysisServer(3102, config.paths.project)
+			const analysisServer = new AnalysisServer(3102, process.cwd())
 			await analysisServer.start()
 			mcpServers.push(analysisServer)
 
@@ -396,11 +401,11 @@ program
 			await fileOpsServer.start()
 			mcpServers.push(fileOpsServer)
 
-			const testRunnerServer = new TestRunnerServer(3101, config.paths.project)
+			const testRunnerServer = new TestRunnerServer(3101, process.cwd())
 			await testRunnerServer.start()
 			mcpServers.push(testRunnerServer)
 
-			const analysisServer = new AnalysisServer(3102, config.paths.project)
+			const analysisServer = new AnalysisServer(3102, process.cwd())
 			await analysisServer.start()
 			mcpServers.push(analysisServer)
 

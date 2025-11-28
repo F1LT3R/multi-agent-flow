@@ -62,6 +62,9 @@ export class DockerAgentExecutor {
 			}
 		}
 
+		// Log file creations for user visibility
+		await this._logFileCreations(result)
+
 		return result
 	} catch (error) {
 		console.error(`[${this.agentConfig.name}] VM execution failed:`, error)
@@ -163,6 +166,9 @@ async function main() {
 
 				const turnResult = {
 					turn: turnCount,
+					timestamp: Date.now(),
+					model: agentConfig.model,
+					maxTurns: agentConfig.max_turns,
 					content: response.content,
 					toolCalls: response.toolCalls,
 					finishReason: response.finishReason,
@@ -172,7 +178,8 @@ async function main() {
 
 				// Execute tool calls if present
 				if (response.toolCalls && response.toolCalls.length > 0) {
-					for (const toolCall of response.toolCalls) {
+					for (let i = 0; i < response.toolCalls.length; i++) {
+						const toolCall = response.toolCalls[i]
 						try {
 							const result = await mcpClient.callTool(toolCall.name, toolCall.arguments)
 							turnResult.toolResults.push({
@@ -180,6 +187,11 @@ async function main() {
 								success: true,
 								result,
 							})
+
+							// IMPORTANT: Add tool result to the toolCall itself for traces
+							if (turnResult.toolCalls[i]) {
+								turnResult.toolCalls[i].result = result
+							}
 
 							// Add tool result to messages
 							messages.push({
@@ -193,6 +205,11 @@ async function main() {
 								success: false,
 								error: error.message,
 							})
+							
+							// IMPORTANT: Add tool error to the toolCall itself for traces
+							if (turnResult.toolCalls[i]) {
+								turnResult.toolCalls[i].result = { error: error.message }
+							}
 							
 							// CRITICAL: Still add tool message even on error
 							// OpenAI requires a response for every tool_call_id
@@ -297,6 +314,38 @@ main().catch(error => {
 	 */
 	getTokenUsage() {
 		return this.totalTokenUsage
+	}
+
+	/**
+	 * Log file creations from tool calls
+	 */
+	async _logFileCreations(result) {
+		const chalk = (await import('chalk')).default
+		const filesCreated = []
+
+		if (result.turns) {
+			for (const turn of result.turns) {
+				if (turn.toolCalls) {
+					for (const toolCall of turn.toolCalls) {
+						if (toolCall.name === 'write_file' && toolCall.result) {
+							// Extract path from arguments
+							const filePath = toolCall.arguments?.path || toolCall.arguments?.file
+							if (filePath) {
+								filesCreated.push(filePath)
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// Log unique files
+		const uniqueFiles = [...new Set(filesCreated)]
+		if (uniqueFiles.length > 0) {
+			for (const file of uniqueFiles) {
+				console.log(chalk.gray(`[${this.agentConfig.name}] ✓ Created ${file}`))
+			}
+		}
 	}
 }
 

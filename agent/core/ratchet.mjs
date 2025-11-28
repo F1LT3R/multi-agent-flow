@@ -8,8 +8,8 @@ import path from 'path'
 export class Ratchet {
 	constructor(config) {
 		this.config = config
-		this.projectTestsDir = path.join(config.paths.project, 'tests')
-		this.projectArtifactsDir = path.join(config.paths.project, 'tests', 'artifacts')
+		this.projectTestsDir = path.join(process.cwd(), 'tests')
+		this.projectArtifactsDir = path.join(process.cwd(), 'tests', 'artifacts')
 		this.permanentTestsDir = config.paths.tests
 		this.permanentArtifactsDir = config.paths.artifacts
 	}
