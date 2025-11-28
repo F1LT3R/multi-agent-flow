@@ -1,6 +1,7 @@
 import Docker from 'dockerode'
 import { exec } from 'child_process'
 import { promisify } from 'util'
+import { Writable } from 'stream'
 import path from 'path'
 import os from 'os'
 import { fileURLToPath } from 'url'
@@ -219,6 +220,77 @@ export class DockerManager {
 			stream.on('error', reject)
 		})
 	}
+
+	/**
+	 * Execute command with real-time streaming output
+	 * Separates stdout (for JSON result) from stderr (for progress output)
+	 * @param {string} command - Command to execute
+	 * @param {object} options - Options
+	 * @param {function} options.onStderr - Callback for stderr lines
+	 * @returns {Promise<string>} - Final stdout content
+	 */
+async execStreaming(command, options = {}) {
+	if (!this.container) {
+		throw new Error('Container not started')
+	}
+
+	const exec = await this.container.exec({
+		Cmd: ['sh', '-c', command],
+		AttachStdout: true,
+		AttachStderr: true,
+	})
+
+	const stream = await exec.start({ hijack: true, stdin: false })
+
+	return new Promise((resolve, reject) => {
+		const stdoutChunks = []
+		let stderrBuffer = ''
+
+		// Create writable streams for stdout and stderr
+		const stdoutStream = new Writable({
+			write(chunk, encoding, callback) {
+				stdoutChunks.push(chunk)
+				callback()
+			}
+		})
+
+		const stderrStream = new Writable({
+			write(chunk, encoding, callback) {
+				stderrBuffer += chunk.toString('utf-8')
+				
+				// Process complete lines
+				const lines = stderrBuffer.split('\n')
+				stderrBuffer = lines.pop() // Keep incomplete line in buffer
+
+				if (options.onStderr) {
+					for (const line of lines) {
+						if (line.trim()) {
+							options.onStderr(line)
+						}
+					}
+				}
+				callback()
+			}
+		})
+
+		// Use dockerode's demuxStream to separate stdout/stderr
+		this.docker.modem.demuxStream(stream, stdoutStream, stderrStream)
+
+		stream.on('end', () => {
+			// Process any remaining stderr
+			if (stderrBuffer.trim() && options.onStderr) {
+				options.onStderr(stderrBuffer)
+			}
+
+			const stdout = Buffer.concat(stdoutChunks).toString('utf-8')
+			resolve(stdout.trim())
+		})
+
+		stream.on('error', reject)
+		stdoutStream.on('error', reject)
+		stderrStream.on('error', reject)
+	})
+}
 
 	/**
 	 * Get host IP address for container to reach host services

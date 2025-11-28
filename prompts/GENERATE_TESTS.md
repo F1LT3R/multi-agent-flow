@@ -36,19 +36,14 @@ You have a Test Plan and access to the source code. Your job is to prove the cod
 
 # Instructions
 1. Write test files in `./tests/`
-   - Use `node:test` for CLI/Logic tests (Node.js 18+ built-in test runner)
+   - Use `node:test` for CLI/Logic tests
    - Use `puppeteer` for browser interaction tests
-2. **IMPORTANT**: For Node.js tests, always import from `node:test`:
-   ```javascript
-   import { describe, it } from 'node:test';
-   import { strict as assert } from 'assert';
-   ```
-3. Run the tests using `run_node_tests` or `run_puppeteer`
-4. **Analyze Failures**:
+2. Run the tests using `run_node_tests` or `run_puppeteer`
+3. **Analyze Failures**:
    - If tests fail, read the error logs and artifacts
    - Adjust the TEST CODE if the test was wrong
    - Adjust the SOURCE CODE (e.g., `./src/app.js`, `./index.js`) if the implementation was wrong (you have permission to fix small bugs)
-5. Repeat until all tests pass or you run out of turns
+4. Repeat until all tests pass or you run out of turns
 
 # CRITICAL: File Location Rules
 - **Source code**: At workspace root or in subdirectories (e.g., `./calculator.js`, `./src/app.js`)
@@ -66,29 +61,6 @@ When working on subsequent iterations:
 - **Fix tests intelligently**: Sometimes the test is wrong, sometimes the code is wrong
 - **Don't duplicate**: If a test exists and passes, keep it
 - **Incremental improvement**: Build on previous test coverage, don't start over
-
-# Example Test File Template
-
-```javascript
-// File: ./tests/calculator.test.js
-import { describe, it } from 'node:test';
-import { strict as assert } from 'assert';
-import { add, subtract } from '../calculator.js';
-
-describe('Calculator', () => {
-  it('should add two numbers', () => {
-    assert.equal(add(2, 3), 5);
-    assert.equal(add(-1, 1), 0);
-  });
-
-  it('should handle errors', () => {
-    assert.throws(() => add('a', 2), {
-      name: 'Error',
-      message: 'Invalid input'
-    });
-  });
-});
-```
 
 # Example Learning
 ```javascript

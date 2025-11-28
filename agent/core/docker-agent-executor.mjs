@@ -34,15 +34,39 @@ export class DockerAgentExecutor {
 		const scriptPath = `/workspace/agent/temp-script-${Date.now()}.mjs`
 		await this._writeScriptToContainer(scriptPath, script)
 
-	// Execute script in container
+	// Execute script in container with real-time streaming
 	try {
-		const output = await this.dockerManager.exec(`node ${scriptPath} 2>&1`)
+		const chalk = (await import('chalk')).default
+
+		const output = await this.dockerManager.execStreaming(
+			`node ${scriptPath}`,
+			{
+				onStderr: (line) => {
+					// Stream stderr to console in real-time with formatting
+					if (line.startsWith('[Turn')) {
+						console.log(chalk.cyan(`\n▶ ${line}`))
+					} else if (line.startsWith('🔧')) {
+						console.log(chalk.gray(line))
+					} else if (line.startsWith('✓')) {
+						console.log(chalk.gray(line))
+					} else if (line.startsWith('✗')) {
+						console.log(chalk.red(line))
+					} else if (line.startsWith('📊')) {
+						console.log(chalk.gray(line))
+					} else {
+						// Agent thinking text
+						process.stdout.write(chalk.gray(line + '\n'))
+					}
+				}
+			}
+		)
 
 		// Log raw output for debugging
 		if (!output.trim().startsWith('{')) {
-			console.error(`[${this.agentConfig.name}] Script output is not JSON:`)
-			console.error(output.substring(0, 500)) // First 500 chars
-			throw new Error(`Script execution failed. Output: ${output.substring(0, 200)}`)
+			console.error(`[${this.agentConfig.name}] Script stdout is not JSON:`)
+			console.error(`Length: ${output.length}`)
+			console.error(`First 500 chars: ${output.substring(0, 500)}`)
+			throw new Error(`Script execution failed. Stdout was not JSON (length: ${output.length})`)
 		}
 
 		const result = JSON.parse(output)
@@ -85,6 +109,7 @@ export class DockerAgentExecutor {
 import { ProviderFactory } from '/workspace/agent/ai-providers/provider-factory.mjs'
 import { MCPClient } from '/workspace/agent/core/mcp-client.mjs'
 import fs from 'fs/promises'
+import { writeFileSync } from 'fs'
 
 // Wrap everything in try-catch to ensure JSON output even on error
 async function main() {
@@ -147,6 +172,9 @@ async function main() {
 			turnCount++
 
 			try {
+				// Log turn start to stderr for real-time visibility
+				console.error('[Turn ' + turnCount + '/' + agentConfig.max_turns + ']')
+
 				// Call AI provider
 				const response = await provider.createCompletion(messages, tools)
 
@@ -155,6 +183,11 @@ async function main() {
 					results.tokenUsage.prompt_tokens += response.usage.prompt_tokens || 0
 					results.tokenUsage.completion_tokens += response.usage.completion_tokens || 0
 					results.tokenUsage.total_tokens += response.usage.total_tokens || 0
+				}
+
+				// Log agent thinking to stderr for real-time visibility
+				if (response.content && response.content.trim()) {
+					console.error(response.content)
 				}
 
 				// Add assistant message
@@ -181,7 +214,24 @@ async function main() {
 					for (let i = 0; i < response.toolCalls.length; i++) {
 						const toolCall = response.toolCalls[i]
 						try {
-							const result = await mcpClient.callTool(toolCall.name, toolCall.arguments)
+							// Log tool call start to stderr
+							console.error('\\n🔧 ' + toolCall.name + '(...)')
+
+						const result = await mcpClient.callTool(toolCall.name, toolCall.arguments)
+
+						// Log tool success to stderr
+						console.error('✓ ' + toolCall.name + ' completed')
+						
+						// For test execution, log the output
+						if (toolCall.name === 'run_node_tests' && result.stdout) {
+							console.error('\\n--- Test Output ---')
+							console.error(result.stdout)
+							if (result.stderr) {
+								console.error(result.stderr)
+							}
+							console.error('---\\n')
+						}
+
 							turnResult.toolResults.push({
 								tool: toolCall.name,
 								success: true,
@@ -200,6 +250,9 @@ async function main() {
 								content: JSON.stringify(result),
 							})
 						} catch (error) {
+							// Log tool failure to stderr
+							console.error('✗ ' + toolCall.name + ' failed: ' + error.message)
+
 							turnResult.toolResults.push({
 								tool: toolCall.name,
 								success: false,
@@ -224,6 +277,11 @@ async function main() {
 
 				results.turns.push(turnResult)
 
+				// Log token usage to stderr after each turn
+				if (response.usage && response.usage.total_tokens) {
+					console.error('📊 Tokens: ' + response.usage.total_tokens + '\\n')
+				}
+
 				// Check if done
 				if (response.finishReason === 'stop' || response.finishReason === 'end_turn') {
 					results.success = true
@@ -242,14 +300,15 @@ async function main() {
 			}
 		}
 
-	// Store final messages for FlowRunner
-	results.messages = messages
+		// Store final messages for FlowRunner
+		results.messages = messages
 
-	// Output result as JSON
-	console.log(JSON.stringify(results))
+		// Output result as JSON to stdout
+		const jsonOutput = JSON.stringify(results)
+		writeFileSync(1, jsonOutput + '\\n')
 	} catch (error) {
 		// If any error occurs during script execution, output error as JSON
-		console.log(JSON.stringify({
+		const errorOutput = JSON.stringify({
 			success: false,
 			error: error.message,
 			stack: error.stack,
@@ -257,7 +316,8 @@ async function main() {
 			finalMessage: null,
 			messages: [],
 			tokenUsage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
-		}))
+		})
+		writeFileSync(1, errorOutput + '\\n')
 	}
 }
 

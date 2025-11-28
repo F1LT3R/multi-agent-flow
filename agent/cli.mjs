@@ -269,14 +269,14 @@ program
 			console.log(`Flow Runs: ${result.flowRunCount}`)
 			console.log(`Agents Executed: ${result.results.length}`)
 
-			// Token usage summary
-			let totalTokens = 0
-			for (const agentResult of result.results) {
-				if (agentResult.tokenUsage) {
-					totalTokens += agentResult.tokenUsage.total
-				}
+		// Token usage summary
+		let totalTokens = 0
+		for (const agentResult of result.results) {
+			if (agentResult.tokenUsage) {
+				totalTokens += agentResult.tokenUsage.total_tokens
 			}
-			console.log(`Total Tokens Used: ${totalTokens.toLocaleString()}`)
+		}
+		console.log(`Total Tokens Used: ${totalTokens.toLocaleString()}`)
 
 			if (!result.success) {
 				console.log(`Failure Reason: ${result.reason}`)
