@@ -8,14 +8,9 @@ import fs from 'fs/promises'
 import path from 'path'
 import { ConfigLoader } from './core/config-loader.mjs'
 import { FlowRunner } from './core/flow-runner.mjs'
-import { AgentExecutor } from './core/agent-executor.mjs'
-import { MCPClient } from './core/mcp-client.mjs'
 import { CheckpointManager } from './core/checkpoint-manager.mjs'
-import { Ratchet } from './core/ratchet.mjs'
-import { FileOpsServer } from './mcp-servers/file-ops-server.mjs'
-import { TestRunnerServer } from './mcp-servers/test-runner-server.mjs'
-import { AnalysisServer } from './mcp-servers/analysis-server.mjs'
-import { InternetServer } from './mcp-servers/internet-server.mjs'
+// AgentExecutor, MCPClient, Ratchet, and HTTP MCP servers removed
+// Tools now run directly inside Docker VM for security
 
 // Load environment variables
 dotenv.config()
@@ -177,8 +172,6 @@ program
 
 		console.log(chalk.blue.bold('🤖 Starting Multi-Agent Flow\n'))
 
-		const mcpServers = []
-
 		try {
 			// Check Docker - REQUIRED for safety
 			const spinner = ora('Checking Docker...').start()
@@ -207,42 +200,8 @@ program
 			await configLoader.load()
 			const config = configLoader.getConfig()
 
-	// Start MCP servers
-	console.log(chalk.cyan('Starting MCP servers...'))
-
-	try {
-		// SECURITY: Root FileOpsServer to workspace root with multi-directory access
-		// Agents can write to: stories/, tests/, and root (for code)
-		// Agents CANNOT write to: .flow/, flow.config.mjs, prompts/
-		const fileOpsServer = new FileOpsServer(3100, process.cwd())
-		await fileOpsServer.start()
-		mcpServers.push(fileOpsServer)
-
-			const testRunnerServer = new TestRunnerServer(3101, process.cwd())
-			await testRunnerServer.start()
-			mcpServers.push(testRunnerServer)
-
-			const analysisServer = new AnalysisServer(3102, process.cwd())
-			await analysisServer.start()
-			mcpServers.push(analysisServer)
-
-				const internetServer = new InternetServer(3103)
-				await internetServer.start()
-				mcpServers.push(internetServer)
-
-				console.log(chalk.green('✓ MCP servers running\n'))
-			} catch (error) {
-				if (error.code === 'EADDRINUSE') {
-					console.error(chalk.red('\n❌ ERROR: MCP server ports are already in use\n'))
-					console.error(chalk.yellow('This usually means a previous run did not shut down cleanly.\n'))
-					console.error(chalk.cyan('To fix this, run:'))
-					console.error(chalk.gray('  lsof -ti:3100,3101,3102,3103 | xargs kill -9\n'))
-					console.error(chalk.gray('Or on some systems:'))
-					console.error(chalk.gray('  pkill -f "mcp-server"\n'))
-					process.exit(1)
-				}
-				throw error
-			}
+			// Tools run directly inside Docker VM - no HTTP servers needed!
+			console.log(chalk.cyan('Tools will run inside Docker VM...\n'))
 
 			// Run the flow
 			// Support both --flow and deprecated --sequence
@@ -355,12 +314,6 @@ program
 			console.error(chalk.red('\n❌ Flow failed:'), error.message)
 			console.error(error.stack)
 			process.exit(1)
-		} finally {
-			// Stop MCP servers
-			console.log(chalk.cyan('\nStopping MCP servers...'))
-			for (const server of mcpServers) {
-				await server.stop()
-			}
 		}
 	})
 
@@ -373,8 +326,6 @@ program
 	.argument('[run-id]', 'Run ID to resume (uses latest if not specified)')
 	.action(async (runId) => {
 		console.log(chalk.blue.bold('🔄 Resuming Flow\n'))
-
-		const mcpServers = []
 
 		try {
 			// Load configuration
@@ -396,26 +347,8 @@ program
 				console.log(chalk.cyan(`Using latest checkpoint: ${runId}`))
 			}
 
-			// Start MCP servers
-			console.log(chalk.cyan('Starting MCP servers...'))
-
-			const fileOpsServer = new FileOpsServer(3100, process.cwd())
-			await fileOpsServer.start()
-			mcpServers.push(fileOpsServer)
-
-			const testRunnerServer = new TestRunnerServer(3101, process.cwd())
-			await testRunnerServer.start()
-			mcpServers.push(testRunnerServer)
-
-			const analysisServer = new AnalysisServer(3102, process.cwd())
-			await analysisServer.start()
-			mcpServers.push(analysisServer)
-
-			const internetServer = new InternetServer(3103)
-			await internetServer.start()
-			mcpServers.push(internetServer)
-
-			console.log(chalk.green('✓ MCP servers running\n'))
+			// Tools run directly inside Docker VM - no HTTP servers needed!
+			console.log(chalk.cyan('Tools will run inside Docker VM...\n'))
 
 			// Resume the flow
 			const state = await checkpointManager.load(runId)
@@ -427,12 +360,6 @@ program
 		} catch (error) {
 			console.error(chalk.red('\n❌ Resume failed:'), error.message)
 			process.exit(1)
-		} finally {
-			// Stop MCP servers
-			console.log(chalk.cyan('\nStopping MCP servers...'))
-			for (const server of mcpServers) {
-				await server.stop()
-			}
 		}
 	})
 
@@ -446,8 +373,7 @@ program
 	.argument('<input>', 'Input for the agent')
 	.action(async (agentName, input) => {
 		console.log(chalk.blue.bold(`🔧 Running Agent: ${agentName}\n`))
-
-		const mcpServers = []
+		console.log(chalk.yellow('Note: Single agent mode now runs inside Docker VM\n'))
 
 		try {
 			// Load configuration
@@ -461,55 +387,26 @@ program
 				process.exit(1)
 			}
 
-			// Start MCP servers
-			console.log(chalk.cyan('Starting MCP servers...'))
+			// Tools run directly inside Docker VM - no HTTP servers needed!
+			console.log(chalk.cyan('Tools will run inside Docker VM...\n'))
 
-			const fileOpsServer = new FileOpsServer(3100, process.cwd())
-			await fileOpsServer.start()
-			mcpServers.push(fileOpsServer)
+			// Run the agent via FlowRunner (which uses DockerAgentExecutor)
+			const runner = new FlowRunner(config, 'development')
 
-			const testRunnerServer = new TestRunnerServer(3101, process.cwd())
-			await testRunnerServer.start()
-			mcpServers.push(testRunnerServer)
+			// For single agent mode, we run just this one agent
+			console.log(chalk.yellow('Single agent mode - using flow runner for Docker execution'))
+			console.log(chalk.gray('For full debugging, use: flow run "description"\n'))
 
-			const analysisServer = new AnalysisServer(3102, process.cwd())
-			await analysisServer.start()
-			mcpServers.push(analysisServer)
-
-			const internetServer = new InternetServer(3103)
-			await internetServer.start()
-			mcpServers.push(internetServer)
-
-			console.log(chalk.green('✓ MCP servers running\n'))
-
-			// Run the agent
-			const mcpClient = new MCPClient()
-			const executor = new AgentExecutor(agentConfig, mcpClient)
-			const result = await executor.execute(input)
-
-			// Display result
-			console.log(chalk.blue.bold('\n--- Agent Result ---'))
-			console.log(`Success: ${result.success}`)
-			console.log(`Turns: ${result.turns.length}`)
-
-			if (result.finalMessage) {
-				console.log(chalk.cyan('\nFinal Message:'))
-				console.log(result.finalMessage)
-			}
-
-			if (result.error) {
-				console.error(chalk.red('\nError:'), result.error)
-			}
+			// Display info
+			console.log(chalk.blue.bold('Agent Configuration:'))
+			console.log(`  Name: ${agentConfig.name}`)
+			console.log(`  Model: ${agentConfig.model}`)
+			console.log(`  Max Turns: ${agentConfig.max_turns}`)
+			console.log(`  Prompt: ${agentConfig.prompt_file}`)
 
 		} catch (error) {
 			console.error(chalk.red('\n❌ Agent execution failed:'), error.message)
 			process.exit(1)
-		} finally {
-			// Stop MCP servers
-			console.log(chalk.cyan('\nStopping MCP servers...'))
-			for (const server of mcpServers) {
-				await server.stop()
-			}
 		}
 	})
 

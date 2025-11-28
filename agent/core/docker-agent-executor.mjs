@@ -9,10 +9,9 @@ import { TraceRecorder } from './trace-recorder.mjs'
  * ensuring that all AI provider calls and logic run in an isolated environment.
  */
 export class DockerAgentExecutor {
-	constructor(agentConfig, dockerManager, mcpServerPorts, options = {}) {
+	constructor(agentConfig, dockerManager, options = {}) {
 		this.agentConfig = agentConfig
 		this.dockerManager = dockerManager
-		this.mcpServerPorts = mcpServerPorts
 		this.options = options
 		this.flowRunCount = options.flowRunCount || 1
 		this.traceRecorder = new TraceRecorder(options.tracesDir || './traces')
@@ -37,6 +36,22 @@ export class DockerAgentExecutor {
 	// Execute script in container with real-time streaming
 	try {
 		const chalk = (await import('chalk')).default
+		const { marked } = await import('marked')
+		const { default: TerminalRenderer } = await import('marked-terminal')
+
+		// Configure marked for terminal rendering
+		marked.setOptions({
+			renderer: new TerminalRenderer({
+				code: chalk.yellow,
+				blockquote: chalk.gray.italic,
+				heading: chalk.cyan.bold,
+				list: chalk.white,
+				listitem: chalk.white,
+				strong: chalk.bold,
+				em: chalk.italic,
+				codespan: chalk.yellow,
+			})
+		})
 
 		const output = await this.dockerManager.execStreaming(
 			`node ${scriptPath}`,
@@ -55,9 +70,18 @@ export class DockerAgentExecutor {
 					console.log(chalk.gray(line))
 				} else if (line.startsWith('💰')) {
 					console.log(chalk.yellow(line))
+				} else if (line.startsWith('--- Test Output ---') || line === '---') {
+					// Test output delimiters - show as-is
+					console.log(chalk.gray(line))
 				} else {
-					// Agent thinking text
-					process.stdout.write(chalk.gray(line + '\n'))
+					// Agent thinking text - render as markdown
+					try {
+						const rendered = marked.parseInline(line)
+						process.stdout.write(rendered + '\n')
+					} catch (err) {
+						// If markdown parsing fails, show plain text
+						process.stdout.write(chalk.gray(line + '\n'))
+					}
 				}
 			}
 			}
@@ -108,12 +132,11 @@ export class DockerAgentExecutor {
 		// Escape user input for JSON
 		const escapedInput = JSON.stringify(userInput)
 		const escapedAgentConfig = JSON.stringify(this.agentConfig)
-		const escapedMCPPorts = JSON.stringify(this.mcpServerPorts)
 		const escapedPricing = JSON.stringify(this.options.pricingOverrides || {})
 
 		return `
 import { ProviderFactory } from '/workspace/agent/ai-providers/provider-factory.mjs'
-import { MCPClient } from '/workspace/agent/core/mcp-client.mjs'
+import { callTool, getToolDefinitions } from '/workspace/agent/vm-tools/index.mjs'
 import { getCost, getContextWindow, getContextPercent } from '/workspace/agent/data/model-pricing.mjs'
 import fs from 'fs/promises'
 import { writeFileSync } from 'fs'
@@ -124,19 +147,10 @@ async function main() {
 		// Configuration
 		const agentConfig = ${escapedAgentConfig}
 		const userInput = ${escapedInput}
-		const mcpServerPorts = ${escapedMCPPorts}
 		const pricingOverrides = ${escapedPricing}
 
-		// Initialize
+		// Initialize AI provider
 		const provider = ProviderFactory.create(agentConfig.model)
-		const mcpClient = new MCPClient({
-			file_ops: mcpServerPorts.fileOps,
-			run_tests: mcpServerPorts.testRunner,
-			analysis: mcpServerPorts.analysis,
-			internet: mcpServerPorts.internet,
-		}, {
-			host: process.env.MCP_HOST || 'http://host.docker.internal'
-		})
 
 		// Load system prompt (convert host path to VM path)
 		// Host path: /Users/user/project/prompts/AGENT.md
@@ -160,9 +174,9 @@ async function main() {
 			{ role: 'user', content: userInput },
 		]
 
-		// Get available tools
-		const allTools = await mcpClient.listTools()
-		const tools = mcpClient.filterTools(allTools, agentConfig.mcp_tools)
+		// Get available tools (direct import - no HTTP!)
+		// Note: Provider handles conversion to OpenAI format
+		const tools = getToolDefinitions(agentConfig.mcp_tools)
 
 		// Result accumulator
 		const results = {
@@ -225,11 +239,12 @@ async function main() {
 							// Log tool call start to stderr
 							console.error('\\n🔧 ' + toolCall.name + '(...)')
 
-						const result = await mcpClient.callTool(toolCall.name, toolCall.arguments)
+						// Call tool directly (no HTTP - runs in VM!)
+						const result = await callTool(toolCall.name, toolCall.arguments)
 
 						// Log tool success to stderr
 						console.error('✓ ' + toolCall.name + ' completed')
-						
+
 						// For test execution, log the output
 						if (toolCall.name === 'run_node_tests' && result.stdout) {
 							console.error('\\n--- Test Output ---')
@@ -266,12 +281,12 @@ async function main() {
 								success: false,
 								error: error.message,
 							})
-							
+
 							// IMPORTANT: Add tool error to the toolCall itself for traces
 							if (turnResult.toolCalls[i]) {
 								turnResult.toolCalls[i].result = { error: error.message }
 							}
-							
+
 							// CRITICAL: Still add tool message even on error
 							// OpenAI requires a response for every tool_call_id
 							messages.push({
@@ -290,15 +305,15 @@ async function main() {
 				const promptTokens = response.usage.prompt_tokens || 0
 				const completionTokens = response.usage.completion_tokens || 0
 				const totalTokens = response.usage.total_tokens
-				
+
 				// Calculate cost
 				const costData = getCost(agentConfig.model, promptTokens, completionTokens, pricingOverrides)
 				const contextPct = getContextPercent(promptTokens, agentConfig.model, pricingOverrides)
-				
+
 				// Store cost in turn result
 				turnResult.cost = costData.total_cost
 				turnResult.contextPercent = contextPct
-				
+
 				// Log to stderr for real-time display
 				console.error('📊 Tokens: ' + totalTokens + ' (' + promptTokens + '→' + completionTokens + ')')
 				console.error('💰 Cost: $' + costData.total_cost.toFixed(4) + ' | Context: ' + contextPct.toFixed(1) + '%\\n')

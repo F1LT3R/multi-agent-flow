@@ -100,31 +100,24 @@ export class DockerManager {
 			AttachStdout: true,
 			AttachStderr: true,
 			HostConfig: {
-				NetworkMode: 'host', // Access host MCP servers
-		Binds: [
-			// Mount strategy: Mount user project to /project, keep /workspace/agent intact
-			// - /project: User's project root (RW for code files)
-			// - /project/stories: User stories and reports (RW)
-			// - /project/tests: Test files (RW)
-			// - /project/prompts: Agent instructions (RO)
-			// - /workspace/agent: Built-in agent code (NOT mounted, stays from image)
-			`${projectRoot}:/project:rw`,                                    // User project root
-		],
+				// No NetworkMode: 'host' needed - tools run inside VM!
+				Binds: [
+					// Mount strategy: Mount user project to /project, keep /workspace/agent intact
+					// - /project: User's project root (RW for code files)
+					// - /project/stories: User stories and reports (RW)
+					// - /project/tests: Test files (RW)
+					// - /project/prompts: Agent instructions (RO)
+					// - /workspace/agent: Built-in agent code (NOT mounted, stays from image)
+					`${projectRoot}:/project:rw`,
+				],
 			},
-		Env: [
-			// API Keys
-			`OPENAI_API_KEY=${process.env.OPENAI_API_KEY || ''}`,
-			`ANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY || ''}`,
-			`GOOGLE_AI_API_KEY=${process.env.GOOGLE_AI_API_KEY || ''}`,
-			`XAI_API_KEY=${process.env.XAI_API_KEY || ''}`,
-			// MCP Server Ports
-			`MCP_FILE_OPS_PORT=${process.env.MCP_FILE_OPS_PORT || 3100}`,
-			`MCP_TEST_RUNNER_PORT=${process.env.MCP_TEST_RUNNER_PORT || 3101}`,
-			`MCP_ANALYSIS_PORT=${process.env.MCP_ANALYSIS_PORT || 3102}`,
-			`MCP_INTERNET_PORT=${process.env.MCP_INTERNET_PORT || 3103}`,
-			// MCP Host (for container to reach host MCP servers)
-			`MCP_HOST=${this._getHostIP()}`,
-		],
+			Env: [
+				// API Keys only - no MCP ports needed (tools run in VM)
+				`OPENAI_API_KEY=${process.env.OPENAI_API_KEY || ''}`,
+				`ANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY || ''}`,
+				`GOOGLE_AI_API_KEY=${process.env.GOOGLE_AI_API_KEY || ''}`,
+				`XAI_API_KEY=${process.env.XAI_API_KEY || ''}`,
+			],
 		}
 
 		try {
@@ -257,7 +250,7 @@ async execStreaming(command, options = {}) {
 		const stderrStream = new Writable({
 			write(chunk, encoding, callback) {
 				stderrBuffer += chunk.toString('utf-8')
-				
+
 				// Process complete lines
 				const lines = stderrBuffer.split('\n')
 				stderrBuffer = lines.pop() // Keep incomplete line in buffer
@@ -293,27 +286,6 @@ async execStreaming(command, options = {}) {
 }
 
 	/**
-	 * Get host IP address for container to reach host services
-	 */
-	_getHostIP() {
-		// Try to get the local network IP
-		const { networkInterfaces } = os
-		const nets = networkInterfaces()
-		
-		for (const name of Object.keys(nets)) {
-			for (const net of nets[name]) {
-				// Skip internal and non-IPv4 addresses
-				if (net.family === 'IPv4' && !net.internal) {
-					return `http://${net.address}`
-				}
-			}
-		}
-		
-		// Fallback to host.docker.internal (works on some Docker Desktop versions)
-		return 'http://host.docker.internal'
-	}
-
-	/**
 	 * Wait for container to become healthy
 	 */
 	async waitForHealthy(timeout = 30000) {
@@ -322,11 +294,11 @@ async execStreaming(command, options = {}) {
 		}
 
 		const start = Date.now()
-		
+
 		while (Date.now() - start < timeout) {
 			try {
 				const inspect = await this.container.inspect()
-				
+
 				// Check if container has health check configured
 				if (inspect.State.Health) {
 					if (inspect.State.Health.Status === 'healthy') {

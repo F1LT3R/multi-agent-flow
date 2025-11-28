@@ -160,17 +160,10 @@ export class FlowRunner {
 		const agentInput = this._prepareAgentInput(agentName, i)
 
 		// Execute agent inside Docker VM for maximum isolation
-		const mcpServerPorts = {
-			fileOps: process.env.MCP_FILE_OPS_PORT || 3100,
-			testRunner: process.env.MCP_TEST_RUNNER_PORT || 3101,
-			analysis: process.env.MCP_ANALYSIS_PORT || 3102,
-			internet: process.env.MCP_INTERNET_PORT || 3103,
-		}
-
+		// Tools now run directly inside the VM - no HTTP MCP servers needed!
 		const executor = new DockerAgentExecutor(
 			agentConfig,
 			this.dockerManager,
-			mcpServerPorts,
 			{
 				flowRunCount: this.state.flowRunCount,
 				tracesDir: this.config.paths.traces,
@@ -279,16 +272,16 @@ export class FlowRunner {
 		const promptTokens = result.tokenUsage.prompt_tokens || result.tokenUsage.prompt || 0
 		const completionTokens = result.tokenUsage.completion_tokens || result.tokenUsage.completion || 0
 		const totalTokens = result.tokenUsage.total_tokens || result.tokenUsage.total || 0
-		
+
 		console.log(
 			`Tokens: ${promptTokens} in + ${completionTokens} out = ${totalTokens} total`
 		)
-		
+
 		// Calculate and display cost
 		const { getCost, getContextPercent } = await import('../data/model-pricing.mjs')
 		const pricingOverrides = this.config.pricing?.overrides || {}
 		const costData = getCost(result.model, promptTokens, completionTokens, pricingOverrides)
-		
+
 		// Calculate max context used
 		let maxContextPct = 0
 		if (result.turns) {
@@ -298,7 +291,7 @@ export class FlowRunner {
 				}
 			}
 		}
-		
+
 		console.log(
 			`Cost: $${costData.input_cost.toFixed(4)} in + $${costData.output_cost.toFixed(4)} out = $${costData.total_cost.toFixed(4)} total`
 		)
