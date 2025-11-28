@@ -25,10 +25,11 @@ WORKDIR /workspace
 RUN mkdir -p /workspace/agent /project && \
     chown -R agent:agent /workspace /project
 
-# Copy agent code to container (AI providers and core modules)
+# Copy agent code to container (AI providers, core modules, and data)
 # Note: Build context is agent/, so paths are relative to that
 COPY ai-providers/ /workspace/agent/ai-providers/
 COPY core/ /workspace/agent/core/
+COPY data/ /workspace/agent/data/
 
 # Create package.json and install dependencies locally
 RUN cd /workspace/agent && \

@@ -113,13 +113,24 @@ export class TraceRecorder {
 			})
 		}
 
-		// Token Usage
+		// Token Usage & Cost
 		if (data.tokenUsage) {
-			parts.push('## Token Usage')
+			parts.push('## Token Usage & Cost')
 			parts.push('')
 			parts.push(`- Prompt: ${data.tokenUsage.prompt_tokens || 0}`)
 			parts.push(`- Completion: ${data.tokenUsage.completion_tokens || 0}`)
 			parts.push(`- Total: ${data.tokenUsage.total_tokens || 0}`)
+			
+			// Add cost if available
+			if (data.cost !== undefined) {
+				parts.push(`- **Cost: $${data.cost.toFixed(4)}**`)
+			}
+			
+			// Add context percentage if available
+			if (data.contextPercent !== undefined) {
+				parts.push(`- **Context Used: ${data.contextPercent.toFixed(1)}%**`)
+			}
+			
 			parts.push('')
 		}
 

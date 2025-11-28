@@ -10,16 +10,16 @@ import path from 'path'
 
 /**
  * Flow Runner
- * Orchestrates the agent sequence with reflow logic
+ * Orchestrates the agent flow with reflow logic
  */
 export class FlowRunner {
-	constructor(config, sequenceName = 'development') {
+	constructor(config, flowName = 'development') {
 		this.config = config
-		this.sequenceName = sequenceName
-		this.sequence = config.sequences[sequenceName]
+		this.flowName = flowName
+		this.flow = config.flows[flowName]
 
-		if (!this.sequence) {
-			throw new Error(`Sequence '${sequenceName}' not found in configuration`)
+		if (!this.flow) {
+			throw new Error(`Flow '${flowName}' not found in configuration`)
 		}
 
 		this.mcpClient = new MCPClient()
@@ -29,7 +29,7 @@ export class FlowRunner {
 		this.dockerManager = new DockerManager(config)
 
 		this.state = {
-			sequenceName,
+			flowName,
 			flowRunCount: 0,
 			currentAgentIndex: 0,
 			agentResults: [],
@@ -57,7 +57,7 @@ export class FlowRunner {
 			runId = CheckpointManager.generateRunId()
 		}
 
-		console.log(chalk.blue.bold(`[FlowRunner] Starting flow: ${this.sequenceName}`))
+		console.log(chalk.blue.bold(`[FlowRunner] Starting flow: ${this.flowName}`))
 		console.log(chalk.blue(`[FlowRunner] Run ID: ${runId}`))
 
 		// Start Docker container (always required)
@@ -76,10 +76,10 @@ export class FlowRunner {
 		let flowSuccess = false
 
 		try {
-			// Flow run loop (handles reflows)
-			while (this.state.flowRunCount < this.sequence.max_flow_runs) {
+		// Flow run loop (handles reflows)
+		while (this.state.flowRunCount < this.flow.max_flow_runs) {
 			this.state.flowRunCount++
-			console.log(`\n[FlowRunner] Flow Run ${this.state.flowRunCount}/${this.sequence.max_flow_runs}`)
+			console.log(`\n[FlowRunner] Flow Run ${this.state.flowRunCount}/${this.flow.max_flow_runs}`)
 
 			const flowResult = await this._executeFlow(runId)
 
@@ -87,9 +87,9 @@ export class FlowRunner {
 			if (flowResult.reflow) {
 				console.log(`\n[FlowRunner] Review rejected. Reflow required.`)
 
-				// Ask user if configured (unless auto-approve is set)
-				if (this.sequence.ask_before_reflow && process.env.AUTO_APPROVE !== 'true') {
-					const shouldContinue = await this._askUserToReflow()
+			// Ask user if configured (unless auto-approve is set)
+			if (this.flow.ask_before_reflow && process.env.AUTO_APPROVE !== 'true') {
+				const shouldContinue = await this._askUserToReflow()
 					if (!shouldContinue) {
 						console.log('[FlowRunner] User declined reflow. Stopping.')
 						break
@@ -116,8 +116,8 @@ export class FlowRunner {
 				}
 			}
 
-			// Max flow runs reached
-			console.error(chalk.red(`\n[FlowRunner] Max flow runs (${this.sequence.max_flow_runs}) reached.`))
+		// Max flow runs reached
+		console.error(chalk.red(`\n[FlowRunner] Max flow runs (${this.flow.max_flow_runs}) reached.`))
 			return {
 				success: false,
 				flowRunCount: this.state.flowRunCount,
@@ -136,10 +136,10 @@ export class FlowRunner {
 	}
 
 	/**
-	 * Execute the agent sequence
+	 * Execute the agent flow
 	 */
 	async _executeFlow(runId) {
-		const agentNames = this.sequence.agents
+		const agentNames = this.flow.agents
 
 		// Start from current agent index (for resuming)
 		for (let i = this.state.currentAgentIndex; i < agentNames.length; i++) {
@@ -175,6 +175,7 @@ export class FlowRunner {
 				flowRunCount: this.state.flowRunCount,
 				tracesDir: this.config.paths.traces,
 				callbacks: this._createCallbacks(agentName),
+				pricingOverrides: this.config.pricing?.overrides || {},
 			}
 		)
 		const result = await executor.execute(agentInput)
@@ -204,8 +205,8 @@ export class FlowRunner {
 				}
 			}
 
-			// Display agent summary
-			this._displayAgentSummary(result)
+		// Display agent summary
+		await this._displayAgentSummary(result)
 		}
 
 		return { reflow: false }
@@ -269,16 +270,42 @@ export class FlowRunner {
 	/**
 	 * Display agent summary
 	 */
-	_displayAgentSummary(result) {
-		console.log(chalk.cyan(`\n--- Agent Summary ---`))
-		console.log(`Turns used: ${result.turns.length}`)
-		console.log(`Success: ${result.success ? chalk.green('✓') : chalk.red('✗')}`)
+	async _displayAgentSummary(result) {
+	console.log(chalk.cyan(`\n--- Agent Summary ---`))
+	console.log(`Turns used: ${result.turns.length}`)
+	console.log(`Success: ${result.success ? chalk.green('✓') : chalk.red('✗')}`)
 
-		if (result.tokenUsage) {
-			console.log(
-				`Tokens: ${result.tokenUsage.prompt_tokens || result.tokenUsage.prompt || 0} prompt + ${result.tokenUsage.completion_tokens || result.tokenUsage.completion || 0} completion = ${result.tokenUsage.total_tokens || result.tokenUsage.total || 0} total`
-			)
+	if (result.tokenUsage) {
+		const promptTokens = result.tokenUsage.prompt_tokens || result.tokenUsage.prompt || 0
+		const completionTokens = result.tokenUsage.completion_tokens || result.tokenUsage.completion || 0
+		const totalTokens = result.tokenUsage.total_tokens || result.tokenUsage.total || 0
+		
+		console.log(
+			`Tokens: ${promptTokens} in + ${completionTokens} out = ${totalTokens} total`
+		)
+		
+		// Calculate and display cost
+		const { getCost, getContextPercent } = await import('../data/model-pricing.mjs')
+		const pricingOverrides = this.config.pricing?.overrides || {}
+		const costData = getCost(result.model, promptTokens, completionTokens, pricingOverrides)
+		
+		// Calculate max context used
+		let maxContextPct = 0
+		if (result.turns) {
+			for (const turn of result.turns) {
+				if (turn.contextPercent > maxContextPct) {
+					maxContextPct = turn.contextPercent
+				}
+			}
 		}
+		
+		console.log(
+			`Cost: $${costData.input_cost.toFixed(4)} in + $${costData.output_cost.toFixed(4)} out = $${costData.total_cost.toFixed(4)} total`
+		)
+		if (maxContextPct > 0) {
+			console.log(`Max Context: ${maxContextPct.toFixed(1)}%`)
+		}
+	}
 
 		if (result.error) {
 			console.error(chalk.red(`Error: ${result.error}`))

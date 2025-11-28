@@ -41,23 +41,25 @@ export class DockerAgentExecutor {
 		const output = await this.dockerManager.execStreaming(
 			`node ${scriptPath}`,
 			{
-				onStderr: (line) => {
-					// Stream stderr to console in real-time with formatting
-					if (line.startsWith('[Turn')) {
-						console.log(chalk.cyan(`\n▶ ${line}`))
-					} else if (line.startsWith('🔧')) {
-						console.log(chalk.gray(line))
-					} else if (line.startsWith('✓')) {
-						console.log(chalk.gray(line))
-					} else if (line.startsWith('✗')) {
-						console.log(chalk.red(line))
-					} else if (line.startsWith('📊')) {
-						console.log(chalk.gray(line))
-					} else {
-						// Agent thinking text
-						process.stdout.write(chalk.gray(line + '\n'))
-					}
+			onStderr: (line) => {
+				// Stream stderr to console in real-time with formatting
+				if (line.startsWith('[Turn')) {
+					console.log(chalk.cyan(`\n▶ ${line}`))
+				} else if (line.startsWith('🔧')) {
+					console.log(chalk.gray(line))
+				} else if (line.startsWith('✓')) {
+					console.log(chalk.gray(line))
+				} else if (line.startsWith('✗')) {
+					console.log(chalk.red(line))
+				} else if (line.startsWith('📊')) {
+					console.log(chalk.gray(line))
+				} else if (line.startsWith('💰')) {
+					console.log(chalk.yellow(line))
+				} else {
+					// Agent thinking text
+					process.stdout.write(chalk.gray(line + '\n'))
 				}
+			}
 			}
 		)
 
@@ -70,6 +72,9 @@ export class DockerAgentExecutor {
 		}
 
 		const result = JSON.parse(output)
+
+		// Add model to result for cost tracking
+		result.model = this.agentConfig.model
 
 		// Store messages and token usage for FlowRunner
 		if (result.messages) {
@@ -104,10 +109,12 @@ export class DockerAgentExecutor {
 		const escapedInput = JSON.stringify(userInput)
 		const escapedAgentConfig = JSON.stringify(this.agentConfig)
 		const escapedMCPPorts = JSON.stringify(this.mcpServerPorts)
+		const escapedPricing = JSON.stringify(this.options.pricingOverrides || {})
 
 		return `
 import { ProviderFactory } from '/workspace/agent/ai-providers/provider-factory.mjs'
 import { MCPClient } from '/workspace/agent/core/mcp-client.mjs'
+import { getCost, getContextWindow, getContextPercent } from '/workspace/agent/data/model-pricing.mjs'
 import fs from 'fs/promises'
 import { writeFileSync } from 'fs'
 
@@ -118,6 +125,7 @@ async function main() {
 		const agentConfig = ${escapedAgentConfig}
 		const userInput = ${escapedInput}
 		const mcpServerPorts = ${escapedMCPPorts}
+		const pricingOverrides = ${escapedPricing}
 
 		// Initialize
 		const provider = ProviderFactory.create(agentConfig.model)
@@ -275,14 +283,28 @@ async function main() {
 					}
 				}
 
-				results.turns.push(turnResult)
+			results.turns.push(turnResult)
 
-				// Log token usage to stderr after each turn
-				if (response.usage && response.usage.total_tokens) {
-					console.error('📊 Tokens: ' + response.usage.total_tokens + '\\n')
-				}
+			// Log token usage and cost to stderr after each turn
+			if (response.usage && response.usage.total_tokens) {
+				const promptTokens = response.usage.prompt_tokens || 0
+				const completionTokens = response.usage.completion_tokens || 0
+				const totalTokens = response.usage.total_tokens
+				
+				// Calculate cost
+				const costData = getCost(agentConfig.model, promptTokens, completionTokens, pricingOverrides)
+				const contextPct = getContextPercent(promptTokens, agentConfig.model, pricingOverrides)
+				
+				// Store cost in turn result
+				turnResult.cost = costData.total_cost
+				turnResult.contextPercent = contextPct
+				
+				// Log to stderr for real-time display
+				console.error('📊 Tokens: ' + totalTokens + ' (' + promptTokens + '→' + completionTokens + ')')
+				console.error('💰 Cost: $' + costData.total_cost.toFixed(4) + ' | Context: ' + contextPct.toFixed(1) + '%\\n')
+			}
 
-				// Check if done
+			// Check if done
 				if (response.finishReason === 'stop' || response.finishReason === 'end_turn') {
 					results.success = true
 					results.finalMessage = response.content

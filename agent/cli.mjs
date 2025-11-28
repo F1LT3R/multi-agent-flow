@@ -165,7 +165,8 @@ program
 	.command('run')
 	.description('Run the full agent flow')
 	.argument('<description>', 'Feature description')
-	.option('-s, --sequence <name>', 'Sequence to run', 'development')
+	.option('-f, --flow <name>', 'Flow to run', 'development')
+	.option('-s, --sequence <name>', '[Deprecated] Use --flow instead')
 	.option('-y, --yes', 'Auto-approve all prompts (non-interactive mode)')
 	.option('--auto-approve', 'Alias for --yes')
 	.action(async (description, options) => {
@@ -244,7 +245,9 @@ program
 			}
 
 			// Run the flow
-			const runner = new FlowRunner(config, options.sequence)
+			// Support both --flow and deprecated --sequence
+		const flowName = options.flow || options.sequence || 'development'
+		const runner = new FlowRunner(config, flowName)
 			const result = await runner.run(description)
 
 		// Create snapshot if successful
@@ -261,28 +264,92 @@ program
 			}
 		}
 
-			// Display summary
-			console.log(chalk.blue.bold('\n' + '='.repeat(60)))
-			console.log(chalk.blue.bold('Flow Summary'))
-			console.log(chalk.blue.bold('='.repeat(60)))
-			console.log(`Status: ${result.success ? chalk.green('SUCCESS') : chalk.red('FAILED')}`)
-			console.log(`Flow Runs: ${result.flowRunCount}`)
-			console.log(`Agents Executed: ${result.results.length}`)
+		// Display summary
+		console.log(chalk.blue.bold('\n' + '='.repeat(60)))
+		console.log(chalk.blue.bold('Flow Summary'))
+		console.log(chalk.blue.bold('='.repeat(60)))
+		console.log(`Status: ${result.success ? chalk.green('SUCCESS') : chalk.red('FAILED')}`)
+		console.log(`Flow Runs: ${result.flowRunCount}`)
+		console.log(`Agents Executed: ${result.results.length}`)
 
-		// Token usage summary
+		// Calculate detailed metrics by model
+		const { getCost } = await import('./data/model-pricing.mjs')
+		const pricingOverrides = config.pricing?.overrides || {}
+		const modelStats = {}
+		let totalTurns = 0
+		let totalPromptTokens = 0
+		let totalCompletionTokens = 0
 		let totalTokens = 0
+		let totalInputCost = 0
+		let totalOutputCost = 0
+
 		for (const agentResult of result.results) {
 			if (agentResult.tokenUsage) {
-				totalTokens += agentResult.tokenUsage.total_tokens
+				const model = agentResult.model || 'unknown'
+				const promptTokens = agentResult.tokenUsage.prompt_tokens || 0
+				const completionTokens = agentResult.tokenUsage.completion_tokens || 0
+				const tokens = agentResult.tokenUsage.total_tokens || 0
+				const turns = agentResult.turns?.length || 0
+
+				// Calculate cost
+				const costData = getCost(model, promptTokens, completionTokens, pricingOverrides)
+
+				// Aggregate totals
+				totalTurns += turns
+				totalPromptTokens += promptTokens
+				totalCompletionTokens += completionTokens
+				totalTokens += tokens
+				totalInputCost += costData.input_cost
+				totalOutputCost += costData.output_cost
+
+				// Aggregate by model
+				if (!modelStats[model]) {
+					modelStats[model] = {
+						agents: 0,
+						turns: 0,
+						promptTokens: 0,
+						completionTokens: 0,
+						totalTokens: 0,
+						inputCost: 0,
+						outputCost: 0,
+					}
+				}
+				modelStats[model].agents++
+				modelStats[model].turns += turns
+				modelStats[model].promptTokens += promptTokens
+				modelStats[model].completionTokens += completionTokens
+				modelStats[model].totalTokens += tokens
+				modelStats[model].inputCost += costData.input_cost
+				modelStats[model].outputCost += costData.output_cost
 			}
 		}
-		console.log(`Total Tokens Used: ${totalTokens.toLocaleString()}`)
 
-			if (!result.success) {
-				console.log(`Failure Reason: ${result.reason}`)
+		const totalCost = totalInputCost + totalOutputCost
+
+		console.log(`Total Turns: ${totalTurns}`)
+		console.log()
+
+		// Model breakdown
+		if (Object.keys(modelStats).length > 0) {
+			console.log(chalk.cyan('By Model:'))
+			for (const [model, stats] of Object.entries(modelStats)) {
+				const modelTotalCost = stats.inputCost + stats.outputCost
+				console.log(chalk.gray(`  ${model} (${stats.agents} agent${stats.agents > 1 ? 's' : ''}):`))
+				console.log(chalk.gray(`    Tokens: ${stats.promptTokens.toLocaleString()} in + ${stats.completionTokens.toLocaleString()} out = ${stats.totalTokens.toLocaleString()} total`))
+				console.log(chalk.gray(`    Cost: $${stats.inputCost.toFixed(4)} in + $${stats.outputCost.toFixed(4)} out = $${modelTotalCost.toFixed(4)} total`))
+				console.log()
 			}
+		}
 
-			console.log(chalk.blue.bold('='.repeat(60) + '\n'))
+		console.log(chalk.bold(`Total: ${totalTokens.toLocaleString()} tokens, $${totalCost.toFixed(4)}`))
+		console.log(`Average per Agent: $${(totalCost / result.results.length).toFixed(4)}`)
+
+		if (!result.success) {
+			console.log()
+			console.log(`Failure Reason: ${result.reason}`)
+		}
+
+		console.log(chalk.blue.bold('='.repeat(60) + '\n'))
 
 		} catch (error) {
 			console.error(chalk.red('\n❌ Flow failed:'), error.message)
@@ -352,7 +419,7 @@ program
 
 			// Resume the flow
 			const state = await checkpointManager.load(runId)
-			const runner = new FlowRunner(config, state.sequenceName)
+			const runner = new FlowRunner(config, state.flowName || state.sequenceName || 'development')
 			const result = await runner.run(state.userInput, runId)
 
 			console.log(chalk.green.bold('\n✅ Flow resumed and completed!'))

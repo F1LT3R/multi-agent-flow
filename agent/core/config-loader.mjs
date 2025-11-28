@@ -19,7 +19,10 @@ export const DEFAULT_CONFIG = {
 		log_dir: './.flow/logs',
 		snapshots: './.flow/snapshots',             // Snapshot versioning
 	},
-	sequences: {
+	pricing: {
+		overrides: {},                               // User overrides for model pricing
+	},
+	flows: {
 		development: {
 			max_flow_runs: 3,
 			ask_before_reflow: true,
@@ -128,6 +131,16 @@ export class ConfigLoader {
 	}
 
 	/**
+	 * Get pricing overrides (merged with defaults)
+	 */
+	getPricingOverrides() {
+		if (!this.config) {
+			throw new Error('Configuration not loaded. Call load() first.')
+		}
+		return this.config.pricing?.overrides || {}
+	}
+
+	/**
 	 * Load configuration from flow.config.mjs
 	 */
 	async load() {
@@ -185,14 +198,22 @@ export class ConfigLoader {
 	}
 
 	/**
-	 * Get sequence configuration by name
+	 * Get flow configuration by name
+	 */
+	getFlow(name) {
+		const flow = this.config.flows[name]
+		if (!flow) {
+			throw new Error(`Flow '${name}' not found in configuration`)
+		}
+		return flow
+	}
+
+	/**
+	 * @deprecated Use getFlow() instead
 	 */
 	getSequence(name) {
-		const sequence = this.config.sequences[name]
-		if (!sequence) {
-			throw new Error(`Sequence '${name}' not found in configuration`)
-		}
-		return sequence
+		console.warn('getSequence() is deprecated. Use getFlow() instead.')
+		return this.getFlow(name)
 	}
 
 	/**
@@ -202,7 +223,10 @@ export class ConfigLoader {
 		return {
 			paths: { ...defaults.paths, ...user.paths },
 			persistence: { ...defaults.persistence, ...user.persistence },
-			sequences: { ...defaults.sequences, ...user.sequences },
+			pricing: {
+				overrides: { ...(defaults.pricing?.overrides || {}), ...(user.pricing?.overrides || {}) },
+			},
+			flows: { ...defaults.flows, ...user.flows, ...user.sequences }, // Support old "sequences" key
 			agents: user.agents || defaults.agents,
 		}
 	}
@@ -216,9 +240,9 @@ export class ConfigLoader {
 			throw new Error('Config must include paths')
 		}
 
-		// Validate sequences
-		if (!this.config.sequences || Object.keys(this.config.sequences).length === 0) {
-			throw new Error('Config must include at least one sequence')
+		// Validate flows
+		if (!this.config.flows || Object.keys(this.config.flows).length === 0) {
+			throw new Error('Config must include at least one flow')
 		}
 
 		// Validate agents
@@ -239,12 +263,12 @@ export class ConfigLoader {
 			}
 		}
 
-		// Validate sequences reference valid agents
-		for (const [seqName, sequence] of Object.entries(this.config.sequences)) {
-			for (const agentName of sequence.agents) {
+		// Validate flows reference valid agents
+		for (const [flowName, flow] of Object.entries(this.config.flows)) {
+			for (const agentName of flow.agents) {
 				if (!this.config.agents.find((a) => a.name === agentName)) {
 					throw new Error(
-						`Sequence '${seqName}' references unknown agent '${agentName}'`
+						`Flow '${flowName}' references unknown agent '${agentName}'`
 					)
 				}
 			}
@@ -302,7 +326,21 @@ export default {
 		snapshots: './.flow/snapshots',
 	},
 
-	sequences: {
+	pricing: {
+		// Override model pricing (optional)
+		// Defaults are loaded from agent/data/model-pricing.mjs
+		// Use this if you have negotiated rates or want custom estimates
+		overrides: {
+			// Example:
+			// 'gpt-4o': {
+			//   input: 2.50,           // USD per 1M input tokens
+			//   output: 10.00,          // USD per 1M output tokens
+			//   context_window: 128000, // Max tokens
+			// },
+		},
+	},
+
+	flows: {
 		development: {
 			max_flow_runs: 3,
 			ask_before_reflow: true,
