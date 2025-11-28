@@ -67,12 +67,43 @@ export async function read_file({ path: filePath }) {
 }
 
 /**
- * Write contents to a file
+ * Write contents to a file with optional prettier formatting
  */
 export async function write_file({ path: filePath, content }) {
 	const resolvedPath = validatePath(filePath)
 	await fs.mkdir(path.dirname(resolvedPath), { recursive: true })
-	await fs.writeFile(resolvedPath, content, 'utf-8')
+
+	// Try to format with prettier if available in project
+	let finalContent = content
+	try {
+		// Dynamically import prettier from project's node_modules
+		const prettier = await import('prettier')
+
+		// Look for prettier config in project
+		const configPath = await prettier.resolveConfigFile(PROJECT_ROOT)
+
+		// Only format if project has prettier config
+		if (configPath) {
+			const config = await prettier.resolveConfig(configPath)
+
+			// Check if file should be formatted
+			const fileInfo = await prettier.getFileInfo(resolvedPath, {
+				ignorePath: path.join(PROJECT_ROOT, '.prettierignore'),
+			})
+
+			if (!fileInfo.ignored && fileInfo.inferredParser) {
+				finalContent = await prettier.format(content, {
+					...config,
+					filepath: resolvedPath,
+				})
+			}
+		}
+	} catch (error) {
+		// Prettier not installed or config not found - skip formatting silently
+		// This is expected and fine - formatting is completely optional
+	}
+
+	await fs.writeFile(resolvedPath, finalContent, 'utf-8')
 	return `File written: ${filePath}`
 }
 
@@ -143,7 +174,7 @@ export const TOOL_DEFINITIONS = [
 	},
 	{
 		name: 'write_file',
-		description: 'Write contents to a file. Paths relative to /project root. Can write to: code files, stories, tests. CANNOT write to: .flow/, flow.config.mjs, prompts/',
+		description: 'Write contents to a file. Automatically formats with prettier if installed in project. Paths relative to /project root. Can write to: code files, stories, tests. CANNOT write to: .flow/, flow.config.mjs, prompts/',
 		inputSchema: {
 			type: 'object',
 			properties: {

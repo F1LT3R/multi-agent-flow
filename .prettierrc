@@ -14,8 +14,8 @@
 		{
 			"files": ["*.js", "*.mjs", "*.json"],
 			"options": {
-				"useTabs": false,
-				"tabWidth": 2
+				"useTabs": true,
+				"tabWidth": 4
 			}
 		}
 	]

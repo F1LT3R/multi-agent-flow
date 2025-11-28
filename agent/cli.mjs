@@ -34,6 +34,37 @@ program
 		try {
 			const projectRoot = process.cwd()
 
+			// Check if root directory (./src) exists
+			const rootDir = path.join(projectRoot, './src')
+			try {
+				await fs.access(rootDir)
+			} catch (error) {
+				if (error.code === 'ENOENT') {
+					// Root directory doesn't exist - ask user
+					const readline = await import('readline')
+					const rl = readline.createInterface({
+						input: process.stdin,
+						output: process.stdout
+					})
+
+					const answer = await new Promise((resolve) => {
+						rl.question(
+							chalk.yellow(`\nRoot directory './src' does not exist. Create it? (y/n) `),
+							resolve
+						)
+					})
+					rl.close()
+
+					if (answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes') {
+						await fs.mkdir(rootDir, { recursive: true })
+						console.log(chalk.green('✔ Created ./src'))
+					} else {
+						console.log(chalk.yellow('Note: You can create ./src manually or adjust paths.root in flow.config.mjs'))
+					}
+					console.log()
+				}
+			}
+
 		// Create directory structure
 		const spinner = ora('Creating directory structure...').start()
 		const dirs = [

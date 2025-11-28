@@ -18,12 +18,12 @@ trim_trailing_whitespace = true
 # JavaScript/JSON files - spaces (for when you build the agent system)
 [*.{js,mjs,json}]
 indent_style = space
-indent_size = 2
+indent_size = 4
 trim_trailing_whitespace = true
 
 # YAML files - spaces
 [*.{yml,yaml}]
 indent_style = space
-indent_size = 2
+indent_size = 4
 trim_trailing_whitespace = true
 

@@ -41,9 +41,17 @@ export async function run_node_tests({ pattern = 'tests/**/*.test.mjs' }) {
  */
 export async function run_puppeteer({ testFile }) {
 	try {
+		// Run with NODE_PATH to find globally installed puppeteer
 		const { stdout, stderr } = await execAsync(
-			`cd "${PROJECT_ROOT}" && node ${testFile}`,
-			{ maxBuffer: 10 * 1024 * 1024 }
+			`cd "${PROJECT_ROOT}" && NODE_PATH=/workspace/agent/node_modules node ${testFile}`,
+			{ 
+				maxBuffer: 10 * 1024 * 1024,
+				timeout: 300000, // 5 minutes for browser tests
+				env: {
+					...process.env,
+					PUPPETEER_CACHE_DIR: '/opt/puppeteer-cache',
+				}
+			}
 		)
 
 		return {
@@ -127,7 +135,7 @@ export const TOOL_DEFINITIONS = [
 	},
 	{
 		name: 'run_puppeteer',
-		description: 'Execute Puppeteer browser tests (runs in VM)',
+		description: 'Execute Puppeteer browser tests. Puppeteer is pre-installed in the VM. Import with: const puppeteer = require("puppeteer") or import puppeteer from "puppeteer"',
 		inputSchema: {
 			type: 'object',
 			properties: {

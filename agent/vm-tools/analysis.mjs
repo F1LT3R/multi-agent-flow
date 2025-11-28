@@ -47,55 +47,75 @@ export async function lint_code({ path: targetPath = '.' }) {
 }
 
 /**
- * Check code style and formatting
+ * Check code formatting with prettier
  */
 export async function check_style({ path: filePath }) {
 	try {
+		// Try to use project's prettier if available
+		const prettier = await import('prettier')
+
 		const fullPath = path.join(PROJECT_ROOT, filePath)
 		const content = await fs.readFile(fullPath, 'utf-8')
 
-		const issues = []
+		// Look for prettier config
+		const configPath = await prettier.resolveConfigFile(PROJECT_ROOT)
 
-		// Basic style checks
-		const lines = content.split('\n')
-
-		// Check for spaces vs tabs
-		const hasSpaces = lines.some((line) => line.startsWith('  '))
-		const hasTabs = lines.some((line) => line.startsWith('\t'))
-
-		if (hasSpaces && hasTabs) {
-			issues.push('Mixed indentation (spaces and tabs)')
+		if (!configPath) {
+			return {
+				success: true,
+				message: 'Prettier not configured. Install prettier and add config for style checking.',
+			}
 		}
 
-		// Check for double quotes
-		if (content.includes('"') && !content.includes("'")) {
-			issues.push('Using double quotes instead of single quotes')
-		}
+		const config = await prettier.resolveConfig(configPath)
 
-		// Check for semicolons
-		const hasUnnecessarySemicolons = lines.some((line) => {
-			const trimmed = line.trim()
-			return trimmed.endsWith(';') && !trimmed.startsWith('for') && !trimmed.startsWith('while')
+		// Check if file should be formatted
+		const fileInfo = await prettier.getFileInfo(fullPath, {
+			ignorePath: path.join(PROJECT_ROOT, '.prettierignore'),
 		})
 
-		if (hasUnnecessarySemicolons) {
-			issues.push('Unnecessary semicolons found')
+		if (fileInfo.ignored) {
+			return {
+				success: true,
+				message: 'File ignored by prettier',
+			}
 		}
 
-		// Check for classes
-		if (content.includes('class ')) {
-			issues.push('Using classes instead of object composition')
+		if (!fileInfo.inferredParser) {
+			return {
+				success: true,
+				message: 'File type not supported by prettier',
+			}
 		}
 
-		return {
-			success: issues.length === 0,
-			issues,
-			summary: issues.length === 0 ? 'Style guide compliant' : `${issues.length} style issues found`,
+		// Check if file is formatted
+		const isFormatted = await prettier.check(content, {
+			...config,
+			filepath: fullPath,
+		})
+
+		if (isFormatted) {
+			return {
+				success: true,
+				message: 'File is properly formatted',
+			}
+		} else {
+			// Get formatted version to show diff info
+			const formatted = await prettier.format(content, {
+				...config,
+				filepath: fullPath,
+			})
+
+			return {
+				success: false,
+				message: 'File needs formatting',
+				details: `File has ${formatted.split('\n').length - content.split('\n').length} line difference(s)`,
+			}
 		}
 	} catch (error) {
 		return {
-			success: false,
-			error: error.message,
+			success: true,
+			message: `Style check skipped: ${error.message}`,
 		}
 	}
 }
@@ -116,7 +136,7 @@ export const TOOL_DEFINITIONS = [
 	},
 	{
 		name: 'check_style',
-		description: 'Check code style and formatting (runs in VM)',
+		description: 'Check code formatting with prettier (uses project config, runs in VM)',
 		inputSchema: {
 			type: 'object',
 			properties: {

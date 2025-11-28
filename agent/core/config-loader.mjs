@@ -7,7 +7,7 @@ import { pathToFileURL } from 'url'
  */
 export const DEFAULT_CONFIG = {
 		paths: {
-			root: './',                             // Source code root (where agents write code)
+			root: './src',                          // Source code root (where agents write code)
 			tests: './tests',                       // Test files (used by ratchet)
 			artifacts: './tests/artifacts',         // Test artifacts (used by ratchet)
 			traces: './.flow/logs/traces',          // Execution traces (used by flow-runner)
@@ -313,7 +313,7 @@ export class ConfigLoader {
 
 export default {
 	paths: {
-		root: './',
+		root: './src',
 		tests: './tests',
 		artifacts: './tests/artifacts',
 		traces: './.flow/logs/traces',

@@ -1,12 +1,40 @@
 {
-  "name": "simple-calculator",
-  "version": "1.0.0",
-  "description": "A simple calculator with an add function",
-  "main": "calculator.js",
-  "scripts": {
-    "test": "jest"
+  "name": "multi-agent-flow",
+  "version": "0.1.0",
+  "description": "Multi-agent flow orchestration system with Docker isolation",
+  "type": "module",
+  "bin": {
+    "flow": "./agent/cli.mjs"
   },
-  "devDependencies": {
-    "jest": "^27.0.0"
-  }
+  "scripts": {
+    "start": "node agent/cli.mjs",
+    "test": "node --test tests/"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.52.0",
+    "@google/generative-ai": "^0.21.0",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "chalk": "^5.3.0",
+    "commander": "^11.1.0",
+    "cors": "^2.8.5",
+    "dockerode": "^4.0.2",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "marked": "^11.0.0",
+    "marked-terminal": "^7.0.0",
+    "openai": "^4.20.0",
+    "ora": "^8.0.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "ai",
+    "agents",
+    "multi-agent",
+    "flow",
+    "orchestration",
+    "docker"
+  ],
+  "license": "MIT"
 }
