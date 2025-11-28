@@ -6,23 +6,10 @@ ARG UID=1000
 ARG GID=1000
 
 # Install system dependencies for Puppeteer/Chromium and utilities
+# Using chromium from apt instead of Puppeteer's bundled version for ARM compatibility
 RUN apt-get update && apt-get install -y \
     curl \
-    # Chromium dependencies
-    libnss3 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
-    libdrm2 \
-    libxkbcommon0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxrandr2 \
-    libgbm1 \
-    libasound2 \
-    libpango-1.0-0 \
-    libcairo2 \
+    chromium \
     # Clean up
     && rm -rf /var/lib/apt/lists/*
 
@@ -31,12 +18,12 @@ RUN (getent passwd ${UID} && userdel -r $(getent passwd ${UID} | cut -d: -f1)) |
     (groupadd -g ${GID} agent 2>/dev/null || groupmod -n agent $(getent group ${GID} | cut -d: -f1)) && \
     useradd -u ${UID} -g ${GID} -m -s /bin/bash agent
 
-# Install global npm packages including Puppeteer
-# PUPPETEER_CACHE_DIR ensures Chromium is stored in a shared location
-ENV PUPPETEER_CACHE_DIR=/opt/puppeteer-cache
-RUN mkdir -p /opt/puppeteer-cache && \
-    npm install -g @modelcontextprotocol/sdk openai @anthropic-ai/sdk @google/generative-ai puppeteer && \
-    chown -R agent:agent /opt/puppeteer-cache
+# Tell Puppeteer to skip downloading Chromium and use system chromium
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+
+# Install global npm packages
+RUN npm install -g @modelcontextprotocol/sdk openai @anthropic-ai/sdk @google/generative-ai puppeteer
 
 # Set working directory
 WORKDIR /workspace
@@ -63,9 +50,6 @@ RUN chmod 755 /usr/local/bin/mcp-client.mjs
 
 # Switch to agent user
 USER agent
-
-# Set Puppeteer to use installed Chromium
-ENV PUPPETEER_EXECUTABLE_PATH=/opt/puppeteer-cache/chrome/linux-*/chrome-linux64/chrome
 
 # Health check
 HEALTHCHECK --interval=5s --timeout=3s --start-period=2s --retries=3 \

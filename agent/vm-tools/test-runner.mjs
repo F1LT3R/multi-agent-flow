@@ -38,19 +38,17 @@ export async function run_node_tests({ pattern = 'tests/**/*.test.mjs' }) {
 
 /**
  * Execute Puppeteer browser tests
+ * Puppeteer and Chromium are pre-installed in the VM
  */
 export async function run_puppeteer({ testFile }) {
 	try {
-		// Run with NODE_PATH to find globally installed puppeteer
+		// Run with NODE_PATH to find pre-installed puppeteer
+		// PUPPETEER_EXECUTABLE_PATH is set in the Docker image to use system chromium
 		const { stdout, stderr } = await execAsync(
 			`cd "${PROJECT_ROOT}" && NODE_PATH=/workspace/agent/node_modules node ${testFile}`,
 			{ 
 				maxBuffer: 10 * 1024 * 1024,
 				timeout: 300000, // 5 minutes for browser tests
-				env: {
-					...process.env,
-					PUPPETEER_CACHE_DIR: '/opt/puppeteer-cache',
-				}
 			}
 		)
 
@@ -135,7 +133,7 @@ export const TOOL_DEFINITIONS = [
 	},
 	{
 		name: 'run_puppeteer',
-		description: 'Execute Puppeteer browser tests. Puppeteer is pre-installed in the VM. Import with: const puppeteer = require("puppeteer") or import puppeteer from "puppeteer"',
+		description: 'Execute Puppeteer browser tests. Puppeteer and Chromium are pre-installed. Use: const puppeteer = require("puppeteer"); browser = await puppeteer.launch({ headless: true, args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"] })',
 		inputSchema: {
 			type: 'object',
 			properties: {
