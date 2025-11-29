@@ -44,9 +44,9 @@ RUN cd /workspace/agent && \
     npm install @modelcontextprotocol/sdk openai @anthropic-ai/sdk @google/generative-ai marked marked-terminal chalk puppeteer && \
     chown -R agent:agent /workspace/agent
 
-# Copy MCP client script
-COPY docker/mcp-client.mjs /usr/local/bin/mcp-client.mjs
-RUN chmod 755 /usr/local/bin/mcp-client.mjs
+# Copy keep-alive script
+COPY docker/keep-alive.mjs /usr/local/bin/keep-alive.mjs
+RUN chmod 755 /usr/local/bin/keep-alive.mjs
 
 # Switch to agent user
 USER agent
@@ -55,4 +55,4 @@ USER agent
 HEALTHCHECK --interval=5s --timeout=3s --start-period=2s --retries=3 \
   CMD node -e "process.exit(0)"
 
-CMD ["node", "/usr/local/bin/mcp-client.mjs"]
+CMD ["node", "/usr/local/bin/keep-alive.mjs"]

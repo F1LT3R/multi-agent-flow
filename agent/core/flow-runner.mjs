@@ -1,6 +1,4 @@
-import { AgentExecutor } from './agent-executor.mjs'
 import { DockerAgentExecutor } from './docker-agent-executor.mjs'
-import { MCPClient } from './mcp-client.mjs'
 import { CheckpointManager, createStateSnapshot, restoreStateFromSnapshot } from './checkpoint-manager.mjs'
 import { DockerManager } from './docker-manager.mjs'
 import readline from 'readline'
@@ -22,7 +20,6 @@ export class FlowRunner {
 			throw new Error(`Flow '${flowName}' not found in configuration`)
 		}
 
-		this.mcpClient = new MCPClient()
 		this.checkpointManager = new CheckpointManager(
 			this.config.persistence.checkpoints || './.flow/logs/checkpoints'
 		)
