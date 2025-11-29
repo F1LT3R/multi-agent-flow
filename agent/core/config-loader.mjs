@@ -44,6 +44,9 @@ export const DEFAULT_CONFIG = {
 			model: 'gpt-4o',
 			max_turns: 6,
 			complete_turns: true,
+			settings: {
+				temperature: 0.5,  // Balanced for clear specs with some creative phrasing
+			},
 			mcp_tools: {
 				include: ['file_ops', 'internet'],
 				exclude: ['run_tests'],
@@ -55,6 +58,9 @@ export const DEFAULT_CONFIG = {
 			goal: 'Write the implementation',
 			model: 'gpt-4o-mini',
 			max_turns: 9,
+			settings: {
+				temperature: 0.2,  // Low for consistent, precise code
+			},
 			mcp_tools: {
 				include: ['file_ops', 'internet'],
 				exclude: ['run_tests'],
@@ -66,6 +72,9 @@ export const DEFAULT_CONFIG = {
 			goal: 'Bridge the gap between stories and test code',
 			model: 'gpt-4o',
 			max_turns: 3,
+			settings: {
+				temperature: 0.3,  // Low for analytical, structured planning
+			},
 			mcp_tools: {
 				include: ['file_ops'],
 				exclude: ['run_tests'],
@@ -77,6 +86,9 @@ export const DEFAULT_CONFIG = {
 			goal: 'Write and run the tests until they pass',
 			model: 'gpt-4o-mini',
 			max_turns: 12,
+			settings: {
+				temperature: 0.2,  // Low for precise, reproducible tests
+			},
 			mcp_tools: {
 				include: ['file_ops', 'run_tests'],
 				exclude: [],
@@ -89,6 +101,9 @@ export const DEFAULT_CONFIG = {
 			model: 'gpt-4o',
 			max_turns: 3,
 			is_gatekeeper: true,
+			settings: {
+				temperature: 0.1,  // Very low for deterministic, consistent gatekeeper decisions
+			},
 			mcp_tools: {
 				include: ['file_ops', 'run_tests'],
 				exclude: [],
@@ -100,6 +115,9 @@ export const DEFAULT_CONFIG = {
 			goal: 'Polish the codebase',
 			model: 'gpt-4o',
 			max_turns: 9,
+			settings: {
+				temperature: 0.3,  // Low for safe refactoring that preserves functionality
+			},
 			mcp_tools: {
 				include: ['file_ops', 'run_tests'],
 				exclude: [],
@@ -111,6 +129,9 @@ export const DEFAULT_CONFIG = {
 			goal: 'Summarize for the human',
 			model: 'gpt-4o',
 			max_turns: 6,
+			settings: {
+				temperature: 0.5,  // Balanced for clear documentation with varied presentation
+			},
 			mcp_tools: {
 				include: ['file_ops'],
 				exclude: [],
@@ -261,6 +282,23 @@ export class ConfigLoader {
 			if (!agent.max_turns || agent.max_turns < 1) {
 				throw new Error(`Agent '${agent.name}' must have max_turns >= 1`)
 			}
+
+			// Validate settings if present
+			if (agent.settings) {
+				const { temperature, top_p, max_tokens, stop } = agent.settings
+				if (temperature !== undefined && (temperature < 0 || temperature > 2)) {
+					throw new Error(`Agent '${agent.name}': temperature must be between 0 and 2`)
+				}
+				if (top_p !== undefined && (top_p < 0 || top_p > 1)) {
+					throw new Error(`Agent '${agent.name}': top_p must be between 0 and 1`)
+				}
+				if (max_tokens !== undefined && max_tokens < 1) {
+					throw new Error(`Agent '${agent.name}': max_tokens must be positive`)
+				}
+				if (stop !== undefined && (!Array.isArray(stop) || stop.length > 4)) {
+					throw new Error(`Agent '${agent.name}': stop must be an array with max 4 sequences`)
+				}
+			}
 		}
 
 		// Validate flows reference valid agents
@@ -363,6 +401,9 @@ export default {
 			model: 'gpt-4o',
 			max_turns: 6,
 			complete_turns: true,
+			settings: {
+				temperature: 0.5,  // Balanced for clear specs with some creative phrasing
+			},
 			mcp_tools: {
 				include: ['file_ops', 'internet'],
 				exclude: ['run_tests'],
@@ -374,6 +415,12 @@ export default {
 			goal: 'Write the implementation',
 			model: 'gpt-4o-mini',
 			max_turns: 9,
+			settings: {
+				temperature: 0.2,  // Low for consistent, precise code
+				// top_p: 1,            // Nucleus sampling 0-1 (alternative to temperature)
+				// max_tokens: 4096,    // Max output tokens
+				// stop: ['---END---'], // Stop sequences (array, max 4)
+			},
 			mcp_tools: {
 				include: ['file_ops', 'internet'],
 				exclude: ['run_tests'],
@@ -385,6 +432,9 @@ export default {
 			goal: 'Bridge the gap between stories and test code',
 			model: 'gpt-4o',
 			max_turns: 3,
+			settings: {
+				temperature: 0.3,  // Low for analytical, structured planning
+			},
 			mcp_tools: {
 				include: ['file_ops'],
 				exclude: ['run_tests'],
@@ -396,6 +446,9 @@ export default {
 			goal: 'Write and run the tests until they pass',
 			model: 'gpt-4o-mini',
 			max_turns: 12,
+			settings: {
+				temperature: 0.2,  // Low for precise, reproducible tests
+			},
 			mcp_tools: {
 				include: ['file_ops', 'run_tests'],
 				exclude: [],
@@ -408,6 +461,9 @@ export default {
 			model: 'gpt-4o',
 			max_turns: 3,
 			is_gatekeeper: true,
+			settings: {
+				temperature: 0.1,  // Very low for deterministic, consistent gatekeeper decisions
+			},
 			mcp_tools: {
 				include: ['file_ops', 'run_tests'],
 				exclude: [],
@@ -419,6 +475,9 @@ export default {
 			goal: 'Polish the codebase',
 			model: 'gpt-4o',
 			max_turns: 9,
+			settings: {
+				temperature: 0.3,  // Low for safe refactoring that preserves functionality
+			},
 			mcp_tools: {
 				include: ['file_ops', 'run_tests'],
 				exclude: [],
@@ -430,6 +489,9 @@ export default {
 			goal: 'Summarize for the human',
 			model: 'gpt-4o',
 			max_turns: 6,
+			settings: {
+				temperature: 0.5,  // Balanced for clear documentation with varied presentation
+			},
 			mcp_tools: {
 				include: ['file_ops'],
 				exclude: [],

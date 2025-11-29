@@ -197,8 +197,8 @@ async function main() {
 				// Log turn start to stderr for real-time visibility
 				console.error('[Turn ' + turnCount + '/' + agentConfig.max_turns + ']')
 
-				// Call AI provider
-				const response = await provider.createCompletion(messages, tools)
+				// Call AI provider with settings from agent config
+				const response = await provider.createCompletion(messages, tools, agentConfig.settings || {})
 
 				// Accumulate token usage
 				if (response.usage) {
