@@ -4,20 +4,16 @@ import { pathToFileURL } from 'url'
 
 /**
  * Default configuration based on VISION.md
+ * Note: All paths are hardcoded relative to project root:
+ * - .flow/prompts/       - Agent prompt files
+ * - .flow/checkpoints/   - Resume state
+ * - .flow/snapshots/     - Rollback points
+ * - .flow/traces/        - Execution logs
+ * - .flow/ratchet/       - Blessed artifacts (stories, reports, tests)
  */
 export const DEFAULT_CONFIG = {
-		paths: {
-			root: './src',                          // Source code root (where agents write code)
-			tests: './tests',                       // Test files (used by ratchet)
-			artifacts: './tests/artifacts',         // Test artifacts (used by ratchet)
-			traces: './.flow/logs/traces',          // Execution traces (used by flow-runner)
-			// Note: stories hardcoded to './stories', prompts in './prompts/'
-		},
 	persistence: {
 		checkpoint_interval: 'every_turn',
-		checkpoints: './.flow/logs/checkpoints',    // Checkpoints (nested)
-		log_dir: './.flow/logs',
-		snapshots: './.flow/snapshots',             // Snapshot versioning
 	},
 	pricing: {
 		overrides: {},                               // User overrides for model pricing
@@ -51,7 +47,7 @@ export const DEFAULT_CONFIG = {
 				include: ['file_ops', 'internet'],
 				exclude: ['run_tests'],
 			},
-			prompt_file: './prompts/WRITE_USER_STORIES.md',
+			prompt_file: './.flow/prompts/WRITE_USER_STORIES.md',
 		},
 		{
 			name: 'GENERATE_CODE',
@@ -65,7 +61,7 @@ export const DEFAULT_CONFIG = {
 				include: ['file_ops', 'internet'],
 				exclude: ['run_tests'],
 			},
-			prompt_file: './prompts/GENERATE_CODE.md',
+			prompt_file: './.flow/prompts/GENERATE_CODE.md',
 		},
 		{
 			name: 'PLAN_TESTS',
@@ -79,7 +75,7 @@ export const DEFAULT_CONFIG = {
 				include: ['file_ops'],
 				exclude: ['run_tests'],
 			},
-			prompt_file: './prompts/PLAN_TESTS.md',
+			prompt_file: './.flow/prompts/PLAN_TESTS.md',
 		},
 		{
 			name: 'GENERATE_TESTS',
@@ -93,7 +89,7 @@ export const DEFAULT_CONFIG = {
 				include: ['file_ops', 'run_tests'],
 				exclude: [],
 			},
-			prompt_file: './prompts/GENERATE_TESTS.md',
+			prompt_file: './.flow/prompts/GENERATE_TESTS.md',
 		},
 		{
 			name: 'REVIEW',
@@ -108,7 +104,7 @@ export const DEFAULT_CONFIG = {
 				include: ['file_ops', 'run_tests'],
 				exclude: [],
 			},
-			prompt_file: './prompts/REVIEW.md',
+			prompt_file: './.flow/prompts/REVIEW.md',
 		},
 		{
 			name: 'CLEAN_AND_REFACTOR',
@@ -122,7 +118,7 @@ export const DEFAULT_CONFIG = {
 				include: ['file_ops', 'run_tests'],
 				exclude: [],
 			},
-			prompt_file: './prompts/CLEAN_AND_REFACTOR.md',
+			prompt_file: './.flow/prompts/CLEAN_AND_REFACTOR.md',
 		},
 		{
 			name: 'REPORT',
@@ -136,7 +132,7 @@ export const DEFAULT_CONFIG = {
 				include: ['file_ops'],
 				exclude: [],
 			},
-			prompt_file: './prompts/REPORT.md',
+			prompt_file: './.flow/prompts/REPORT.md',
 		},
 	],
 }
@@ -162,10 +158,10 @@ export class ConfigLoader {
 	}
 
 	/**
-	 * Load configuration from flow.config.mjs
+	 * Load configuration from .flow/flow.config.mjs
 	 */
 	async load() {
-		const configPath = path.join(this.projectRoot, 'flow.config.mjs')
+		const configPath = path.join(this.projectRoot, '.flow/flow.config.mjs')
 
 		try {
 			// Check if config file exists
@@ -181,7 +177,7 @@ export class ConfigLoader {
 		} catch (error) {
 			if (error.code === 'ENOENT') {
 				// Config file doesn't exist, use defaults
-				console.warn('No flow.config.mjs found, using default configuration')
+				console.warn('No .flow/flow.config.mjs found, using default configuration')
 				this.config = DEFAULT_CONFIG
 			} else {
 				throw new Error(`Failed to load config: ${error.message}`)
@@ -242,7 +238,6 @@ export class ConfigLoader {
 	 */
 	_mergeConfig(defaults, user) {
 		return {
-			paths: { ...defaults.paths, ...user.paths },
 			persistence: { ...defaults.persistence, ...user.persistence },
 			pricing: {
 				overrides: { ...(defaults.pricing?.overrides || {}), ...(user.pricing?.overrides || {}) },
@@ -256,11 +251,6 @@ export class ConfigLoader {
 	 * Validate configuration
 	 */
 	_validate() {
-		// Validate paths
-		if (!this.config.paths) {
-			throw new Error('Config must include paths')
-		}
-
 		// Validate flows
 		if (!this.config.flows || Object.keys(this.config.flows).length === 0) {
 			throw new Error('Config must include at least one flow')
@@ -317,13 +307,8 @@ export class ConfigLoader {
 	 * Resolve relative paths to absolute
 	 */
 	_resolvePaths() {
-		for (const [key, value] of Object.entries(this.config.paths)) {
-			this.config.paths[key] = path.resolve(this.projectRoot, value)
-		}
-
 		// Resolve prompt files
-		// Prompts should be in user's project (./prompts/)
-		// NOT in the package's templates directory
+		// Prompts should be in user's project (.flow/prompts/)
 		for (const agent of this.config.agents) {
 			if (agent.prompt_file) {
 				agent.prompt_file = path.resolve(this.projectRoot, agent.prompt_file)
@@ -332,15 +317,18 @@ export class ConfigLoader {
 	}
 
 	/**
-	 * Create default config file
+	 * Create default config file in .flow/flow.config.mjs
 	 */
 	static async createDefaultConfig(projectRoot) {
-		const configPath = path.join(projectRoot, 'flow.config.mjs')
+		const configPath = path.join(projectRoot, '.flow/flow.config.mjs')
+
+		// Ensure .flow directory exists
+		await fs.mkdir(path.join(projectRoot, '.flow'), { recursive: true })
 
 		// Check if already exists
 		try {
 			await fs.access(configPath)
-			throw new Error('flow.config.mjs already exists')
+			throw new Error('.flow/flow.config.mjs already exists')
 		} catch (error) {
 			if (error.code !== 'ENOENT') {
 				throw error
@@ -348,20 +336,16 @@ export class ConfigLoader {
 		}
 
 		const configContent = `// Multi-Agent Flow Configuration
+// All paths are hardcoded relative to project root:
+// - .flow/prompts/       - Agent prompt files
+// - .flow/checkpoints/   - Resume state
+// - .flow/snapshots/     - Rollback points
+// - .flow/traces/        - Execution logs
+// - .flow/ratchet/       - Blessed artifacts (stories, reports, tests)
 
 export default {
-	paths: {
-		root: './src',
-		tests: './tests',
-		artifacts: './tests/artifacts',
-		traces: './.flow/logs/traces',
-	},
-
 	persistence: {
 		checkpoint_interval: 'every_turn',
-		checkpoints: './.flow/logs/checkpoints',
-		log_dir: './.flow/logs',
-		snapshots: './.flow/snapshots',
 	},
 
 	pricing: {
@@ -408,7 +392,7 @@ export default {
 				include: ['file_ops', 'internet'],
 				exclude: ['run_tests'],
 			},
-			prompt_file: './prompts/WRITE_USER_STORIES.md',
+			prompt_file: './.flow/prompts/WRITE_USER_STORIES.md',
 		},
 		{
 			name: 'GENERATE_CODE',
@@ -425,7 +409,7 @@ export default {
 				include: ['file_ops', 'internet'],
 				exclude: ['run_tests'],
 			},
-			prompt_file: './prompts/GENERATE_CODE.md',
+			prompt_file: './.flow/prompts/GENERATE_CODE.md',
 		},
 		{
 			name: 'PLAN_TESTS',
@@ -439,7 +423,7 @@ export default {
 				include: ['file_ops'],
 				exclude: ['run_tests'],
 			},
-			prompt_file: './prompts/PLAN_TESTS.md',
+			prompt_file: './.flow/prompts/PLAN_TESTS.md',
 		},
 		{
 			name: 'GENERATE_TESTS',
@@ -453,7 +437,7 @@ export default {
 				include: ['file_ops', 'run_tests'],
 				exclude: [],
 			},
-			prompt_file: './prompts/GENERATE_TESTS.md',
+			prompt_file: './.flow/prompts/GENERATE_TESTS.md',
 		},
 		{
 			name: 'REVIEW',
@@ -468,7 +452,7 @@ export default {
 				include: ['file_ops', 'run_tests'],
 				exclude: [],
 			},
-			prompt_file: './prompts/REVIEW.md',
+			prompt_file: './.flow/prompts/REVIEW.md',
 		},
 		{
 			name: 'CLEAN_AND_REFACTOR',
@@ -482,7 +466,7 @@ export default {
 				include: ['file_ops', 'run_tests'],
 				exclude: [],
 			},
-			prompt_file: './prompts/CLEAN_AND_REFACTOR.md',
+			prompt_file: './.flow/prompts/CLEAN_AND_REFACTOR.md',
 		},
 		{
 			name: 'REPORT',
@@ -496,7 +480,7 @@ export default {
 				include: ['file_ops'],
 				exclude: [],
 			},
-			prompt_file: './prompts/REPORT.md',
+			prompt_file: './.flow/prompts/REPORT.md',
 		},
 	],
 }

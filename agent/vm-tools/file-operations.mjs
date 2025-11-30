@@ -2,6 +2,16 @@
  * File Operations - VM Tools
  * These tools run INSIDE the Docker VM for maximum isolation.
  * All paths are relative to /project (the mounted user project).
+ *
+ * Directory structure:
+ * - Code files: written directly to /project (user's project root)
+ * - Tests: written alongside code (e.g., /project/calculator.test.mjs)
+ * - .flow/: protected (checkpoints, snapshots, traces, ratchet, prompts, config)
+ *
+ * Ratcheted tests:
+ * - Tests from .flow/ratchet/tests/ are copied to project root as read-only (chmod 444)
+ * - Agents CANNOT modify these files directly
+ * - To update a ratcheted test, create a .new.test.mjs file instead
  */
 import fs from 'fs/promises'
 import path from 'path'
@@ -14,10 +24,23 @@ const execAsync = promisify(exec)
 const PROJECT_ROOT = '/project'
 
 /**
+ * Check if a file is read-only (ratcheted test)
+ */
+async function isReadOnly(filePath) {
+	try {
+		const stats = await fs.stat(filePath)
+		// Check if file is writable by owner (mode & 0o200)
+		return (stats.mode & 0o200) === 0
+	} catch (error) {
+		return false // File doesn't exist, not read-only
+	}
+}
+
+/**
  * Validate and resolve path with security checks
  * SECURITY: Prevents path traversal attacks and blocks protected directories
  */
-function validatePath(relativePath) {
+async function validatePath(relativePath, isWriteOperation = false) {
 	// CRITICAL: Block absolute paths
 	if (relativePath.startsWith('/')) {
 		throw new Error(`Absolute paths not allowed: ${relativePath}`)
@@ -36,22 +59,30 @@ function validatePath(relativePath) {
 		throw new Error(`Path escape attempt: ${relativePath}`)
 	}
 
-	// SECURITY: Block writes to protected directories and files
+	// SECURITY: Block access to protected directories and files
 	const normalizedPath = relativePath.replace(/^\.\//, '') // Remove leading ./
 
-	// Block .flow/ directory
+	// Block .flow/ directory (prompts, config, checkpoints, traces, ratchet, snapshots)
 	if (normalizedPath.startsWith('.flow/') || normalizedPath === '.flow') {
 		throw new Error(`Access to .flow/ directory is not allowed: ${relativePath}`)
 	}
 
-	// Block flow.config.mjs
-	if (normalizedPath === 'flow.config.mjs') {
-		throw new Error(`Modifying flow.config.mjs is not allowed`)
-	}
-
-	// Block prompts/ directory writes (agents should not modify their own prompts)
-	if (normalizedPath.startsWith('prompts/') || normalizedPath === 'prompts') {
-		throw new Error(`Modifying prompts/ directory is not allowed: ${relativePath}`)
+	// For write operations, check if file is read-only (ratcheted test)
+	if (isWriteOperation) {
+		const isRO = await isReadOnly(resolved)
+		if (isRO) {
+			// Check if it's a test file
+			if (normalizedPath.includes('.test.')) {
+				const baseName = path.basename(normalizedPath)
+				const newFileName = baseName.replace('.test.', '.new.test.')
+				throw new Error(
+					`Cannot modify ratcheted test: ${relativePath}. ` +
+					`This test is protected from modification. ` +
+					`To propose changes, write to "${newFileName}" instead.`
+				)
+			}
+			throw new Error(`Cannot modify read-only file: ${relativePath}`)
+		}
 	}
 
 	return resolved
@@ -61,16 +92,18 @@ function validatePath(relativePath) {
  * Read contents of a file
  */
 export async function read_file({ path: filePath }) {
-	const resolvedPath = validatePath(filePath)
+	const resolvedPath = await validatePath(filePath, false)
 	const content = await fs.readFile(resolvedPath, 'utf-8')
 	return content
 }
 
 /**
  * Write contents to a file with optional prettier formatting
+ * - Enforces ratchet protection for read-only test files
+ * - Auto-formats with prettier if installed in project
  */
 export async function write_file({ path: filePath, content }) {
-	const resolvedPath = validatePath(filePath)
+	const resolvedPath = await validatePath(filePath, true)
 	await fs.mkdir(path.dirname(resolvedPath), { recursive: true })
 
 	// Try to format with prettier if available in project
@@ -111,7 +144,7 @@ export async function write_file({ path: filePath, content }) {
  * List contents of a directory
  */
 export async function list_directory({ path: dirPath = '.' }) {
-	const resolvedPath = validatePath(dirPath)
+	const resolvedPath = await validatePath(dirPath, false)
 	const entries = await fs.readdir(resolvedPath, { withFileTypes: true })
 
 	const items = entries.map((entry) => ({
@@ -126,7 +159,7 @@ export async function list_directory({ path: dirPath = '.' }) {
  * Delete a file
  */
 export async function delete_file({ path: filePath }) {
-	const resolvedPath = validatePath(filePath)
+	const resolvedPath = await validatePath(filePath, true)
 	await fs.unlink(resolvedPath)
 	return `File deleted: ${filePath}`
 }
@@ -135,8 +168,8 @@ export async function delete_file({ path: filePath }) {
  * Move or rename a file
  */
 export async function move_file({ from, to }) {
-	const fromPath = validatePath(from)
-	const toPath = validatePath(to)
+	const fromPath = await validatePath(from, false)
+	const toPath = await validatePath(to, true)
 	await fs.mkdir(path.dirname(toPath), { recursive: true })
 	await fs.rename(fromPath, toPath)
 	return `File moved: ${from} -> ${to}`
@@ -146,7 +179,7 @@ export async function move_file({ from, to }) {
  * Search for pattern in files
  */
 export async function grep({ pattern, path: searchPath = '.' }) {
-	const resolvedPath = validatePath(searchPath)
+	const resolvedPath = await validatePath(searchPath, false)
 	try {
 		const { stdout } = await execAsync(
 			`grep -r "${pattern}" "${resolvedPath}" 2>/dev/null || true`
@@ -163,22 +196,22 @@ export async function grep({ pattern, path: searchPath = '.' }) {
 export const TOOL_DEFINITIONS = [
 	{
 		name: 'read_file',
-		description: 'Read contents of a file. Paths are relative to /project root. Access code, stories, tests, prompts.',
+		description: 'Read contents of a file. Paths are relative to project root. Can read code, test files, and other project files. CANNOT read: .flow/ directory.',
 		inputSchema: {
 			type: 'object',
 			properties: {
-				path: { type: 'string', description: 'Relative path: "./file.js", "./stories/doc.md", "./tests/test.js", "./prompts/prompt.md"' },
+				path: { type: 'string', description: 'Relative path to file, e.g., "calculator.js", "lib/utils.js", "calculator.test.mjs"' },
 			},
 			required: ['path'],
 		},
 	},
 	{
 		name: 'write_file',
-		description: 'Write contents to a file. Automatically formats with prettier if installed in project. Paths relative to /project root. Can write to: code files, stories, tests. CANNOT write to: .flow/, flow.config.mjs, prompts/',
+		description: 'Write contents to a file. Tests and code are written directly to project root. PROTECTED: Ratcheted test files (read-only) cannot be modified - create a .new.test.mjs file instead. CANNOT write to: .flow/ directory. Auto-formats with prettier if installed.',
 		inputSchema: {
 			type: 'object',
 			properties: {
-				path: { type: 'string', description: 'Relative path: "./file.js", "./stories/doc.md", "./tests/test.js"' },
+				path: { type: 'string', description: 'Relative path for the file, e.g., "calculator.js", "calculator.test.mjs"' },
 				content: { type: 'string', description: 'Content to write' },
 			},
 			required: ['path', 'content'],
@@ -186,17 +219,17 @@ export const TOOL_DEFINITIONS = [
 	},
 	{
 		name: 'list_directory',
-		description: 'List contents of a directory',
+		description: 'List contents of a directory to discover project structure',
 		inputSchema: {
 			type: 'object',
 			properties: {
-				path: { type: 'string', description: 'Path to directory: "." for project root', default: '.' },
+				path: { type: 'string', description: 'Path to directory: "." for project root, "lib" for subdirectory', default: '.' },
 			},
 		},
 	},
 	{
 		name: 'delete_file',
-		description: 'Delete a file',
+		description: 'Delete a file. Cannot delete read-only (ratcheted) files.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -207,7 +240,7 @@ export const TOOL_DEFINITIONS = [
 	},
 	{
 		name: 'move_file',
-		description: 'Move or rename a file',
+		description: 'Move or rename a file. Cannot move read-only (ratcheted) files.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -230,4 +263,3 @@ export const TOOL_DEFINITIONS = [
 		},
 	},
 ]
-

@@ -20,9 +20,7 @@ export class FlowRunner {
 			throw new Error(`Flow '${flowName}' not found in configuration`)
 		}
 
-		this.checkpointManager = new CheckpointManager(
-			this.config.persistence.checkpoints || './.flow/logs/checkpoints'
-		)
+		this.checkpointManager = new CheckpointManager('./.flow/checkpoints')
 		this.dockerManager = new DockerManager(config)
 
 		this.state = {
@@ -122,12 +120,22 @@ export class FlowRunner {
 				reason: 'max_flow_runs_exceeded',
 			}
 		} finally {
-			// Stop Docker container (always required)
-			console.log(chalk.cyan('\n[Docker] Stopping container...'))
-			try {
-				await this.dockerManager.stopContainer()
-			} catch (error) {
-				console.error(chalk.yellow('[Docker] Error stopping container:'), error.message)
+			// Stop Docker container
+			// On failure: keep container for investigation
+			// On success: clean up container
+			if (flowSuccess) {
+				console.log(chalk.cyan('\n[Docker] Stopping container...'))
+				try {
+					await this.dockerManager.stopContainer()
+				} catch (error) {
+					console.error(chalk.yellow('[Docker] Error stopping container:'), error.message)
+				}
+			} else {
+				console.log(chalk.yellow('\n[Docker] Keeping container for investigation...'))
+				console.log(chalk.gray(`  Container: ${this.dockerManager.containerName}`))
+				console.log(chalk.gray(`  Inspect: docker exec -it ${this.dockerManager.containerName} sh`))
+				console.log(chalk.gray(`  Logs: docker logs ${this.dockerManager.containerName}`))
+				console.log(chalk.gray(`  Stop: docker stop ${this.dockerManager.containerName} && docker rm ${this.dockerManager.containerName}`))
 			}
 		}
 	}
@@ -163,7 +171,7 @@ export class FlowRunner {
 			this.dockerManager,
 			{
 				flowRunCount: this.state.flowRunCount,
-				tracesDir: this.config.paths.traces,
+				tracesDir: './.flow/traces',
 				callbacks: this._createCallbacks(agentName),
 				pricingOverrides: this.config.pricing?.overrides || {},
 			}
@@ -326,6 +334,7 @@ export class FlowRunner {
 
 	/**
 	 * Save REPORT agent output to files (orchestrator responsibility)
+	 * Reports are saved to .flow/ratchet/reports/
 	 */
 	async _saveReportFiles(reportContent) {
 		const now = new Date()
@@ -344,16 +353,16 @@ export class FlowRunner {
 		const timestamp = `${datePart}_${timePart}`
 		const runNumber = this.state.flowRunCount
 
-		// Ensure stories directory exists
-		const storiesDir = path.join(process.cwd(), 'stories')
-		await fs.mkdir(storiesDir, { recursive: true })
+		// Ensure reports directory exists in ratchet
+		const reportsDir = path.join(process.cwd(), '.flow/ratchet/reports')
+		await fs.mkdir(reportsDir, { recursive: true })
 
 		// Save to LAST_RUN_REPORT.md (canonical version)
-		const lastRunPath = path.join(storiesDir, 'LAST_RUN_REPORT.md')
+		const lastRunPath = path.join(reportsDir, 'LAST_RUN_REPORT.md')
 		await fs.writeFile(lastRunPath, reportContent, 'utf-8')
 
 		// Save to timestamped archive
-		const archivedPath = path.join(storiesDir, `${timestamp}_REPORT_r${runNumber}.md`)
+		const archivedPath = path.join(reportsDir, `${timestamp}_REPORT_r${runNumber}.md`)
 		await fs.writeFile(archivedPath, reportContent, 'utf-8')
 
 		console.log(chalk.green(`\n[Orchestrator] Report saved:`))

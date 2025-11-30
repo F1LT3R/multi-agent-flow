@@ -34,71 +34,32 @@ program
 		try {
 			const projectRoot = process.cwd()
 
-			// Check if root directory (./src) exists
-			const rootDir = path.join(projectRoot, './src')
-			try {
-				await fs.access(rootDir)
-			} catch (error) {
-				if (error.code === 'ENOENT') {
-					// Root directory doesn't exist - ask user
-					const readline = await import('readline')
-					const rl = readline.createInterface({
-						input: process.stdin,
-						output: process.stdout
-					})
+			// Create directory structure
+			const spinner = ora('Creating directory structure...').start()
+			const dirs = [
+				'.flow',                      // Hidden orchestrator state
+				'.flow/prompts',              // Agent prompts (moved from root)
+				'.flow/checkpoints',          // Resume state (operational)
+				'.flow/snapshots',            // Snapshot versioning
+				'.flow/traces',               // Execution logs (disposable)
+				'.flow/ratchet',              // Ratcheted artifacts
+				'.flow/ratchet/stories',      // User stories
+				'.flow/ratchet/reports',      // Reports (split from stories)
+				'.flow/ratchet/tests',        // Test files (mirrors project structure)
+			]
 
-					const answer = await new Promise((resolve) => {
-						rl.question(
-							chalk.yellow(`\nRoot directory './src' does not exist. Create it? (y/n) `),
-							resolve
-						)
-					})
-					rl.close()
-
-					if (answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes') {
-						await fs.mkdir(rootDir, { recursive: true })
-						console.log(chalk.green('✔ Created ./src'))
-					} else {
-						console.log(chalk.yellow('Note: You can create ./src manually or adjust paths.root in flow.config.mjs'))
-					}
-					console.log()
-				}
+			for (const dir of dirs) {
+				await fs.mkdir(path.join(projectRoot, dir), { recursive: true })
 			}
 
-		// Create directory structure
-		const spinner = ora('Creating directory structure...').start()
-		const dirs = [
-			'stories',                  // User stories and reports
-			'prompts',                  // Agent prompts (will be populated)
-			'tests',                    // Tests at root level
-			'tests/artifacts',          // Test artifacts
-			'.flow',                    // Hidden orchestrator state
-			'.flow/logs',               // Logs parent
-			'.flow/logs/checkpoints',   // Checkpoints (nested)
-			'.flow/logs/traces',        // Traces (nested)
-			'.flow/snapshots',          // Snapshot versioning
-			'.flow/snapshots/previous', // Previous snapshot storage
-		]
-
-		for (const dir of dirs) {
-			await fs.mkdir(path.join(projectRoot, dir), { recursive: true })
-		}
-
-		// Create current symlink pointing to project root
-		try {
-			await fs.symlink('../../', path.join(projectRoot, '.flow/snapshots/current'), 'dir')
-		} catch (error) {
-			// Symlink might already exist, ignore
-		}
-
-		spinner.succeed('Directory structure created')
+			spinner.succeed('Directory structure created')
 
 			// Create config file
 			spinner.start('Creating config file...')
 
 			try {
 				await ConfigLoader.createDefaultConfig(projectRoot)
-				spinner.succeed('Config file created: flow.config.mjs')
+				spinner.succeed('Config file created: .flow/flow.config.mjs')
 			} catch (error) {
 				if (error.message.includes('already exists')) {
 					spinner.info('Config file already exists')
@@ -107,7 +68,7 @@ program
 				}
 			}
 
-		// Copy template files to user's prompts directory
+		// Copy template files to .flow/prompts directory
 		spinner.start('Copying prompt templates...')
 
 		const promptFiles = [
@@ -125,7 +86,7 @@ program
 		// If installed globally, templates are in the package
 		const packageRoot = path.join(path.dirname(new URL(import.meta.url).pathname), '..')
 		const templatesDir = path.join(packageRoot, 'templates')
-		const userPromptsDir = path.join(projectRoot, 'prompts')
+		const userPromptsDir = path.join(projectRoot, '.flow/prompts')
 
 		try {
 			// Check if templates directory exists
@@ -133,6 +94,7 @@ program
 
 			// Copy each template file
 			let copiedCount = 0
+			let skippedCount = 0
 			for (const file of promptFiles) {
 				const sourcePath = path.join(templatesDir, file)
 				const destPath = path.join(userPromptsDir, file)
@@ -140,11 +102,15 @@ program
 				try {
 					// Check if destination already exists
 					await fs.access(destPath)
-					// File exists, skip
+					skippedCount++ // File exists, skip
 				} catch {
-					// File doesn't exist, copy it
-					await fs.copyFile(sourcePath, destPath)
-					copiedCount++
+					// File doesn't exist, try to copy it
+					try {
+						await fs.copyFile(sourcePath, destPath)
+						copiedCount++
+					} catch {
+						// Source doesn't exist, skip silently
+					}
 				}
 			}
 
@@ -152,12 +118,14 @@ program
 				spinner.succeed('Prompt templates copied')
 			} else if (copiedCount > 0) {
 				spinner.succeed(`Copied ${copiedCount} new prompt templates`)
-			} else {
+			} else if (skippedCount > 0) {
 				spinner.info('Prompt templates already exist')
+			} else {
+				spinner.info('No templates to copy (create prompts manually)')
 			}
-		} catch (error) {
-			spinner.warn('Could not copy templates. You may need to create prompts manually.')
-			console.error('  Error:', error.message)
+		} catch {
+			// Templates directory doesn't exist - that's fine, continue
+			spinner.info('No bundled templates found (create prompts manually)')
 		}
 
 			// Create .env file if it doesn't exist
@@ -175,8 +143,8 @@ program
 		console.log(chalk.yellow('Next steps:'))
 		console.log('  1. Add your OpenAI API key to .env')
 		console.log('  2. Ensure Docker is running (for agent isolation)')
-		console.log('  3. Review flow.config.mjs')
-		console.log('  4. Customize prompts in ./prompts/ (optional)')
+		console.log('  3. Review .flow/flow.config.mjs')
+		console.log('  4. Customize prompts in .flow/prompts/ (optional)')
 		console.log('  5. Run: flow run "your feature description"\n')
 		} catch (error) {
 			console.error(chalk.red('❌ Initialization failed:'), error.message)
@@ -245,7 +213,7 @@ program
 			try {
 				console.log(chalk.cyan('\nCreating snapshot of successful run...'))
 				const { SnapshotManager } = await import('./core/snapshot-manager.mjs')
-				const snapshotManager = new SnapshotManager(config.persistence.snapshots)
+				const snapshotManager = new SnapshotManager('./.flow/snapshots')
 				const snapshotTimestamp = await snapshotManager.createSnapshot()
 				console.log(chalk.green(`✓ Snapshot created: ${snapshotTimestamp}`))
 			} catch (error) {
@@ -365,7 +333,7 @@ program
 			const config = configLoader.getConfig()
 
 			// Get checkpoint
-			const checkpointManager = new CheckpointManager(config.persistence.checkpoints)
+			const checkpointManager = new CheckpointManager('./.flow/checkpoints')
 			await checkpointManager.initialize()
 
 			if (!runId) {
@@ -449,7 +417,7 @@ program
 	.description('List available checkpoints')
 	.action(async () => {
 		try {
-			const checkpointManager = new CheckpointManager(config.persistence.checkpoints)
+			const checkpointManager = new CheckpointManager('./.flow/checkpoints')
 			const checkpoints = await checkpointManager.list()
 
 			if (checkpoints.length === 0) {

@@ -153,17 +153,23 @@ async function main() {
 		const provider = ProviderFactory.create(agentConfig.model)
 
 		// Load system prompt (convert host path to VM path)
-		// Host path: /Users/user/project/prompts/AGENT.md
-		// VM path: /project/prompts/AGENT.md
+		// Host path: /Users/user/project/.flow/prompts/AGENT.md
+		// VM path: /project/.flow/prompts/AGENT.md
 		let promptPath = agentConfig.prompt_file
 		if (!promptPath.startsWith('/project/')) {
-			// Extract relative path after 'prompts/'
-			const match = promptPath.match(/prompts\\/(.+)$/)
+			// Extract relative path after '.flow/prompts/'
+			const match = promptPath.match(/\\.flow\\/prompts\\/(.+)$/)
 			if (match) {
-				promptPath = '/project/prompts/' + match[1]
+				promptPath = '/project/.flow/prompts/' + match[1]
 			} else {
-				// Fallback: assume it's already a filename
-				promptPath = '/project/prompts/' + promptPath
+				// Fallback for old prompts/ path format
+				const oldMatch = promptPath.match(/prompts\\/(.+)$/)
+				if (oldMatch) {
+					promptPath = '/project/.flow/prompts/' + oldMatch[1]
+				} else {
+					// Last fallback: assume it's already a filename
+					promptPath = '/project/.flow/prompts/' + promptPath
+				}
 			}
 		}
 		const systemPrompt = await fs.readFile(promptPath, 'utf-8')
