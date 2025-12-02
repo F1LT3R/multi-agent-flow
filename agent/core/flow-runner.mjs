@@ -1,6 +1,8 @@
 import { DockerAgentExecutor } from './docker-agent-executor.mjs'
 import { CheckpointManager, createStateSnapshot, restoreStateFromSnapshot } from './checkpoint-manager.mjs'
 import { DockerManager } from './docker-manager.mjs'
+import { Ratchet } from './ratchet.mjs'
+import { SnapshotManager } from './snapshot-manager.mjs'
 import readline from 'readline'
 import chalk from 'chalk'
 import fs from 'fs/promises'
@@ -22,6 +24,7 @@ export class FlowRunner {
 
 		this.checkpointManager = new CheckpointManager('./.flow/checkpoints')
 		this.dockerManager = new DockerManager(config)
+		this.ratchet = new Ratchet()
 
 		this.state = {
 			flowName,
@@ -31,6 +34,7 @@ export class FlowRunner {
 			userInput: null,
 			startTime: null,
 			messageHistories: {},
+			stories: {},  // Injected from ratchet
 		}
 	}
 
@@ -54,6 +58,11 @@ export class FlowRunner {
 
 		console.log(chalk.blue.bold(`[FlowRunner] Starting flow: ${this.flowName}`))
 		console.log(chalk.blue(`[FlowRunner] Run ID: ${runId}`))
+
+		// Prepare ratchet (copy tests, read stories) BEFORE Docker starts
+		const isNewRun = !runId || this.state.flowRunCount === 0
+		const ratchetPrep = await this.ratchet.prepareRun(isNewRun)
+		this.state.stories = ratchetPrep.stories
 
 		// Start Docker container (always required)
 		console.log(chalk.cyan('\n[Docker] Starting container...'))
@@ -104,6 +113,23 @@ export class FlowRunner {
 				// Flow completed successfully
 				console.log(chalk.green.bold('\n[FlowRunner] Flow completed successfully!'))
 				flowSuccess = true
+
+				// Ratchet successful artifacts (promote tests, copy to ratchet)
+				await this.ratchet.finalizeSuccess()
+
+				// Create snapshot of successful run
+				try {
+					console.log(chalk.cyan('\nCreating snapshot of successful run...'))
+					const snapshotManager = new SnapshotManager('./.flow/snapshots')
+					const snapshotTimestamp = await snapshotManager.createSnapshot()
+					console.log(chalk.green(`✓ Snapshot created: ${snapshotTimestamp}`))
+				} catch (error) {
+					console.error(chalk.red(`✗ Failed to create snapshot: ${error.message}`))
+					console.error(chalk.gray('Stack trace:'))
+					console.error(error.stack)
+					console.error(chalk.gray('Continuing without snapshot...'))
+				}
+
 				return {
 					success: true,
 					flowRunCount: this.state.flowRunCount,
@@ -186,6 +212,11 @@ export class FlowRunner {
 			// Save message history for potential reflow
 			this.state.messageHistories[agentName] = executor.getMessages()
 
+			// WRITE_USER_STORIES agent: Orchestrator saves the stories
+			if (agentName === 'WRITE_USER_STORIES' && result.finalMessage) {
+				await this._saveStoryFiles(result.finalMessage)
+			}
+
 			// REPORT agent: Orchestrator saves the report files
 			if (agentName === 'REPORT' && result.finalMessage) {
 				await this._saveReportFiles(result.finalMessage)
@@ -214,9 +245,21 @@ export class FlowRunner {
 	 * Prepare input for agent based on previous results
 	 */
 	_prepareAgentInput(agentName, agentIndex) {
-		// First agent gets the original user input
+		// First agent gets the original user input with injected stories
 		if (agentIndex === 0) {
-			return this.state.userInput
+			let input = this.state.userInput
+
+			// Inject previous stories from ratchet if available
+			if (this.state.stories && Object.keys(this.state.stories).length > 0) {
+				let storiesSection = `## PREVIOUS STORIES (from ratchet)\n\n`
+				for (const [name, content] of Object.entries(this.state.stories)) {
+					storiesSection += `### ${name}\n${content}\n\n`
+				}
+				storiesSection += `---\n\n`
+				input = storiesSection + input
+			}
+
+			return input
 		}
 
 		// Subsequent agents get context from previous agents
@@ -368,6 +411,21 @@ export class FlowRunner {
 		console.log(chalk.green(`\n[Orchestrator] Report saved:`))
 		console.log(chalk.gray(`  - ${lastRunPath}`))
 		console.log(chalk.gray(`  - ${archivedPath}`))
+	}
+
+	/**
+	 * Save WRITE_USER_STORIES agent output to ratchet (orchestrator responsibility)
+	 * Stories are saved to .flow/ratchet/stories/
+	 */
+	async _saveStoryFiles(storyContent) {
+		const storiesDir = path.join(process.cwd(), '.flow/ratchet/stories')
+		await fs.mkdir(storiesDir, { recursive: true })
+
+		// Save to USER_STORIES.md (canonical version)
+		const storyPath = path.join(storiesDir, 'USER_STORIES.md')
+		await fs.writeFile(storyPath, storyContent, 'utf-8')
+
+		console.log(chalk.green(`\n[Orchestrator] Stories saved: ${storyPath}`))
 	}
 
 	/**

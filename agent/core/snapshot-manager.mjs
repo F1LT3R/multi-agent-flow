@@ -4,18 +4,14 @@ import path from 'path'
 /**
  * Snapshot Manager
  * Creates versioned snapshots that mirror the project structure.
- * 
+ *
  * Snapshot structure:
- * .flow/snapshots/{timestamp}/
- * ├── ./**/*                    # User's code (project root)
- * └── .flow/
- *     ├── flow.config.mjs       # Config at time of snapshot
- *     ├── prompts/              # Prompts at time of snapshot
- *     └── ratchet/              # Ratcheted artifacts
- *         ├── stories/
- *         ├── reports/
- *         └── tests/
- * 
+ *   .flow/snapshots/{timestamp}/
+ *     - User code (project root files)
+ *     - .flow/flow.config.mjs
+ *     - .flow/prompts/
+ *     - .flow/ratchet/ (stories, reports, tests)
+ *
  * Excludes: .flow/checkpoints/, .flow/traces/, .flow/snapshots/
  */
 export class SnapshotManager {
@@ -32,18 +28,33 @@ export class SnapshotManager {
 	 * Mirrors project structure including user code and relevant .flow/ parts
 	 */
 	async createSnapshot() {
-		const timestamp = this._generateTimestamp()
-		const snapshotPath = path.join(this.snapshotDir, timestamp)
+		try {
+			const timestamp = this._generateTimestamp()
+			const snapshotPath = path.join(this.snapshotDir, timestamp)
 
-		await fs.mkdir(snapshotPath, { recursive: true })
+			console.log(`[Snapshot] Creating at: ${snapshotPath}`)
+			await fs.mkdir(snapshotPath, { recursive: true })
 
-		// Copy user's code (everything except .flow/, node_modules/, .git/)
-		await this._copyUserCode(this.workspaceRoot, snapshotPath)
+			// Copy user's code (everything except .flow/, node_modules/, .git/)
+			console.log(`[Snapshot] Copying user code from: ${this.workspaceRoot}`)
+			await this._copyUserCode(this.workspaceRoot, snapshotPath)
 
-		// Copy relevant .flow/ parts
-		await this._copyFlowParts(snapshotPath)
+			// Copy relevant .flow/ parts
+			console.log(`[Snapshot] Copying .flow parts`)
+			await this._copyFlowParts(snapshotPath)
 
-		return timestamp
+			console.log(`[Snapshot] Complete: ${timestamp}`)
+			return timestamp
+		} catch (error) {
+			console.error(`[Snapshot] Error during snapshot creation:`)
+			console.error(`[Snapshot] Error type: ${error.constructor.name}`)
+			console.error(`[Snapshot] Error message: ${error.message}`)
+			if (error.stack) {
+				console.error(`[Snapshot] Stack trace:`)
+				console.error(error.stack)
+			}
+			throw error
+		}
 	}
 
 	/**
@@ -129,7 +140,13 @@ export class SnapshotManager {
 					await fs.mkdir(destPath, { recursive: true })
 					await this._copyUserCode(srcPath, destPath)
 				} else {
-					await fs.copyFile(srcPath, destPath)
+					try {
+						await fs.copyFile(srcPath, destPath)
+					} catch (copyErr) {
+						console.error(`[Snapshot] Failed to copy file: ${srcPath}`)
+						console.error(`[Snapshot] Error: ${copyErr.message}`)
+						throw copyErr
+					}
 				}
 			}
 		} catch (err) {
@@ -185,7 +202,13 @@ export class SnapshotManager {
 				if (entry.isDirectory()) {
 					await this._copyDirectory(srcPath, destPath)
 				} else {
-					await fs.copyFile(srcPath, destPath)
+					try {
+						await fs.copyFile(srcPath, destPath)
+					} catch (copyErr) {
+						console.error(`[Snapshot] Failed to copy file: ${srcPath}`)
+						console.error(`[Snapshot] Error: ${copyErr.message}`)
+						throw copyErr
+					}
 				}
 			}
 		} catch (err) {

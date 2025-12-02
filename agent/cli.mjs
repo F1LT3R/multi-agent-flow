@@ -208,20 +208,6 @@ program
 		const runner = new FlowRunner(config, flowName)
 			const result = await runner.run(description)
 
-		// Create snapshot if successful
-		if (result.success) {
-			try {
-				console.log(chalk.cyan('\nCreating snapshot of successful run...'))
-				const { SnapshotManager } = await import('./core/snapshot-manager.mjs')
-				const snapshotManager = new SnapshotManager('./.flow/snapshots')
-				const snapshotTimestamp = await snapshotManager.createSnapshot()
-				console.log(chalk.green(`✓ Snapshot created: ${snapshotTimestamp}`))
-			} catch (error) {
-				console.error(chalk.red(`✗ Failed to create snapshot: ${error.message}`))
-				console.error(chalk.gray('Continuing without snapshot...'))
-			}
-		}
-
 		// Display summary
 		console.log(chalk.blue.bold('\n' + '='.repeat(60)))
 		console.log(chalk.blue.bold('Flow Summary'))

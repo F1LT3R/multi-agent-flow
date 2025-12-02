@@ -44,8 +44,7 @@ export const DEFAULT_CONFIG = {
 				temperature: 0.5,  // Balanced for clear specs with some creative phrasing
 			},
 			mcp_tools: {
-				include: ['file_ops', 'internet'],
-				exclude: ['run_tests'],
+				include: [],  // No tools - pure text transformation
 			},
 			prompt_file: './.flow/prompts/WRITE_USER_STORIES.md',
 		},
@@ -58,8 +57,7 @@ export const DEFAULT_CONFIG = {
 				temperature: 0.2,  // Low for consistent, precise code
 			},
 			mcp_tools: {
-				include: ['file_ops', 'internet'],
-				exclude: ['run_tests'],
+				include: ['list_directory', 'read_file', 'write_file'],
 			},
 			prompt_file: './.flow/prompts/GENERATE_CODE.md',
 		},
@@ -72,8 +70,7 @@ export const DEFAULT_CONFIG = {
 				temperature: 0.3,  // Low for analytical, structured planning
 			},
 			mcp_tools: {
-				include: ['file_ops'],
-				exclude: ['run_tests'],
+				include: ['list_directory', 'read_file'],  // Read-only
 			},
 			prompt_file: './.flow/prompts/PLAN_TESTS.md',
 		},
@@ -86,8 +83,7 @@ export const DEFAULT_CONFIG = {
 				temperature: 0.2,  // Low for precise, reproducible tests
 			},
 			mcp_tools: {
-				include: ['file_ops', 'run_tests'],
-				exclude: [],
+				include: ['list_directory', 'read_file', 'write_file', 'run_node_tests', 'install_dependencies'],
 			},
 			prompt_file: './.flow/prompts/GENERATE_TESTS.md',
 		},
@@ -101,8 +97,7 @@ export const DEFAULT_CONFIG = {
 				temperature: 0.1,  // Very low for deterministic, consistent gatekeeper decisions
 			},
 			mcp_tools: {
-				include: ['file_ops', 'run_tests'],
-				exclude: [],
+				include: ['list_directory', 'read_file', 'run_node_tests'],  // Read-only + verify
 			},
 			prompt_file: './.flow/prompts/REVIEW.md',
 		},
@@ -115,8 +110,7 @@ export const DEFAULT_CONFIG = {
 				temperature: 0.3,  // Low for safe refactoring that preserves functionality
 			},
 			mcp_tools: {
-				include: ['file_ops', 'run_tests'],
-				exclude: [],
+				include: ['list_directory', 'read_file', 'write_file', 'run_node_tests'],
 			},
 			prompt_file: './.flow/prompts/CLEAN_AND_REFACTOR.md',
 		},
@@ -129,8 +123,7 @@ export const DEFAULT_CONFIG = {
 				temperature: 0.5,  // Balanced for clear documentation with varied presentation
 			},
 			mcp_tools: {
-				include: ['file_ops'],
-				exclude: [],
+				include: ['list_directory', 'read_file'],  // Read-only
 			},
 			prompt_file: './.flow/prompts/REPORT.md',
 		},
@@ -389,8 +382,7 @@ export default {
 				temperature: 0.5,  // Balanced for clear specs with some creative phrasing
 			},
 			mcp_tools: {
-				include: ['file_ops', 'internet'],
-				exclude: ['run_tests'],
+				include: [],  // No tools - pure text transformation
 			},
 			prompt_file: './.flow/prompts/WRITE_USER_STORIES.md',
 		},
@@ -406,8 +398,7 @@ export default {
 				// stop: ['---END---'], // Stop sequences (array, max 4)
 			},
 			mcp_tools: {
-				include: ['file_ops', 'internet'],
-				exclude: ['run_tests'],
+				include: ['list_directory', 'read_file', 'write_file'],
 			},
 			prompt_file: './.flow/prompts/GENERATE_CODE.md',
 		},
@@ -420,8 +411,7 @@ export default {
 				temperature: 0.3,  // Low for analytical, structured planning
 			},
 			mcp_tools: {
-				include: ['file_ops'],
-				exclude: ['run_tests'],
+				include: ['list_directory', 'read_file'],  // Read-only
 			},
 			prompt_file: './.flow/prompts/PLAN_TESTS.md',
 		},
@@ -434,8 +424,7 @@ export default {
 				temperature: 0.2,  // Low for precise, reproducible tests
 			},
 			mcp_tools: {
-				include: ['file_ops', 'run_tests'],
-				exclude: [],
+				include: ['list_directory', 'read_file', 'write_file', 'run_node_tests', 'install_dependencies'],
 			},
 			prompt_file: './.flow/prompts/GENERATE_TESTS.md',
 		},
@@ -449,8 +438,7 @@ export default {
 				temperature: 0.1,  // Very low for deterministic, consistent gatekeeper decisions
 			},
 			mcp_tools: {
-				include: ['file_ops', 'run_tests'],
-				exclude: [],
+				include: ['list_directory', 'read_file', 'run_node_tests'],  // Read-only + verify
 			},
 			prompt_file: './.flow/prompts/REVIEW.md',
 		},
@@ -463,8 +451,7 @@ export default {
 				temperature: 0.3,  // Low for safe refactoring that preserves functionality
 			},
 			mcp_tools: {
-				include: ['file_ops', 'run_tests'],
-				exclude: [],
+				include: ['list_directory', 'read_file', 'write_file', 'run_node_tests'],
 			},
 			prompt_file: './.flow/prompts/CLEAN_AND_REFACTOR.md',
 		},
@@ -477,8 +464,7 @@ export default {
 				temperature: 0.5,  // Balanced for clear documentation with varied presentation
 			},
 			mcp_tools: {
-				include: ['file_ops'],
-				exclude: [],
+				include: ['list_directory', 'read_file'],  // Read-only
 			},
 			prompt_file: './.flow/prompts/REPORT.md',
 		},
