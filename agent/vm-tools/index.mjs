@@ -45,13 +45,20 @@ export const TOOL_DEFINITIONS = [
  * Call a tool by name
  * @param {string} name - Tool name
  * @param {object} args - Tool arguments
+ * @param {object} agentConfig - Agent configuration (includes file_constraints)
  * @returns {Promise<any>} Tool result
  */
-export async function callTool(name, args) {
+export async function callTool(name, args, agentConfig = {}) {
 	const tool = TOOLS[name]
 	if (!tool) {
 		throw new Error(`Unknown tool: ${name}`)
 	}
+	
+	// Pass file constraints to write_file
+	if (name === 'write_file' && agentConfig.file_constraints) {
+		return await tool(args, agentConfig.file_constraints)
+	}
+	
 	return await tool(args)
 }
 

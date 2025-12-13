@@ -499,22 +499,24 @@ export class FlowRunner {
 	 * All checks must pass or the container is immediately terminated
 	 */
 	async _runSecurityChecks() {
-		const checks = []
-		const BOX_WIDTH = 64
+		const W = 44 // Inner width
+		const line = (content) => `║${content.padEnd(W)}║`
+		const divider = () => `╠${'═'.repeat(W)}╣`
 
-		const logCheck = (id, name, passed, detail = '') => {
-			checks.push({ id, name, passed, detail })
-			const status = passed ? chalk.green('[PASS]') : chalk.red('[FAIL]')
-			const padding = '.'.repeat(Math.max(1, 48 - name.length))
-			console.log(`║  [${id}] ${name} ${padding} ${status} ║`)
-			if (!passed && detail) {
-				console.log(chalk.red(`║         ${detail.substring(0, 50).padEnd(53)}║`))
-			}
+		const logCheck = (id, name, passed) => {
+			const status = passed ? 'PASS' : 'FAIL'
+			// Build row without colors first, then colorize after padding
+			const row = `  ${id}  ${name.padEnd(26)}${status}  `.padEnd(W)
+			const colored = passed
+				? row.replace(status, chalk.green(status))
+				: row.replace(status, chalk.red(status))
+			console.log(`║${colored}║`)
 		}
 
-		console.log(chalk.cyan.bold('\n╔' + '═'.repeat(BOX_WIDTH) + '╗'))
-		console.log(chalk.cyan.bold('║' + '                      SECURITY VALIDATION                      ' + '║'))
-		console.log(chalk.cyan.bold('╠' + '═'.repeat(BOX_WIDTH) + '╣'))
+		// Box top
+		console.log(chalk.cyan.bold(`\n╔${'═'.repeat(W)}╗`))
+		console.log(chalk.cyan.bold(line('           SECURITY VALIDATION              ')))
+		console.log(chalk.cyan.bold(divider()))
 
 		// SEC-01: Container running
 		let inspect
@@ -525,14 +527,14 @@ export class FlowRunner {
 				await this._securityFailure('SEC-01', 'Container is not running')
 			}
 		} catch (error) {
-			logCheck('SEC-01', 'Container running', false, error.message)
+			logCheck('SEC-01', 'Container running', false)
 			await this._securityFailure('SEC-01', error.message)
 		}
 
 		// SEC-02: Mount /project verified
 		const mount = inspect.Mounts.find(m => m.Destination === '/project')
 		const mountValid = !!mount && mount.RW
-		logCheck('SEC-02', 'Mount /project verified', mountValid)
+		logCheck('SEC-02', 'Mount /project', mountValid)
 		if (!mountValid) {
 			await this._securityFailure('SEC-02', 'Mount /project missing or not writable')
 		}
@@ -540,16 +542,16 @@ export class FlowRunner {
 		// SEC-03 to SEC-07: Active escape tests (run inside container)
 		const escapeTests = [
 			{ id: 'SEC-03', name: 'Absolute path blocked', path: '/tmp/escape.txt', shouldFail: true },
-			{ id: 'SEC-04', name: 'Parent traversal blocked', path: '../escape.txt', shouldFail: true },
-			{ id: 'SEC-05', name: 'Nested traversal blocked', path: 'a/b/../../../escape.txt', shouldFail: true },
-			{ id: 'SEC-06', name: 'Protected dir (.flow/) blocked', path: '.flow/breach.txt', shouldFail: true },
+			{ id: 'SEC-04', name: 'Parent traversal', path: '../escape.txt', shouldFail: true },
+			{ id: 'SEC-05', name: 'Nested traversal', path: 'a/b/../../../escape.txt', shouldFail: true },
+			{ id: 'SEC-06', name: 'Protected dir (.flow/)', path: '.flow/breach.txt', shouldFail: true },
 			{ id: 'SEC-07', name: 'Valid write allowed', path: '.security-check-temp.txt', shouldFail: false },
 		]
 
 		for (const test of escapeTests) {
 			const result = await this._testWriteEscape(test.path)
 			const passed = test.shouldFail ? !result.success : result.success
-			logCheck(test.id, test.name, passed, result.error)
+			logCheck(test.id, test.name, passed)
 
 			if (!passed) {
 				await this._securityFailure(test.id, `Write escape ${test.shouldFail ? 'succeeded' : 'failed'} with path "${test.path}"`)
@@ -559,22 +561,29 @@ export class FlowRunner {
 		// Cleanup temp file from SEC-07
 		await this._cleanupSecurityTestFile('.security-check-temp.txt')
 
-		console.log(chalk.cyan.bold('╠' + '═'.repeat(BOX_WIDTH) + '╣'))
-		console.log(chalk.green.bold('║  ALL SECURITY CHECKS PASSED - Agents may proceed               ║'))
-		console.log(chalk.cyan.bold('╚' + '═'.repeat(BOX_WIDTH) + '╝\n'))
+		// Success footer with spacing
+		console.log(chalk.cyan.bold(divider()))
+		console.log(chalk.cyan.bold(line('')))
+		console.log(chalk.green.bold(line('          ALL CHECKS PASSED                 ')))
+		console.log(chalk.green.bold(line('             Agents OK                      ')))
+		console.log(chalk.cyan.bold(line('')))
+		console.log(chalk.cyan.bold(`╚${'═'.repeat(W)}╝\n`))
 	}
 
 	/**
 	 * Handle security check failure - terminate container and throw
 	 */
 	async _securityFailure(checkId, reason) {
-		const BOX_WIDTH = 64
-		console.log(chalk.red.bold('╠' + '═'.repeat(BOX_WIDTH) + '╣'))
-		console.log(chalk.red.bold('║  *** SECURITY VIOLATION DETECTED ***                            ║'))
-		console.log(chalk.red.bold('╠' + '═'.repeat(BOX_WIDTH) + '╣'))
-		console.log(chalk.red.bold(`║  ${checkId}: ${reason.substring(0, 55).padEnd(58)}║`))
-		console.log(chalk.red.bold('║  Container terminated immediately.                               ║'))
-		console.log(chalk.red.bold('╚' + '═'.repeat(BOX_WIDTH) + '╝'))
+		const W = 44
+		const line = (content) => `║${content.padEnd(W)}║`
+		const divider = () => `╠${'═'.repeat(W)}╣`
+
+		console.log(chalk.red.bold(divider()))
+		console.log(chalk.red.bold(line('')))
+		console.log(chalk.red.bold(line('        Container terminated.               ')))
+		console.log(chalk.red.bold(line(`        ${reason.substring(0, 34)}`)))
+		console.log(chalk.red.bold(line('')))
+		console.log(chalk.red.bold(`╚${'═'.repeat(W)}╝`))
 
 		try {
 			await this.dockerManager.stopContainer()
@@ -593,12 +602,12 @@ export class FlowRunner {
 		// Escape the path for use in the script
 		const escapedPath = testPath.replace(/'/g, "\\'")
 		const script = `
-			import { callTool } from '/workspace/agent/vm-tools/index.mjs'
+			import { callTool } from '/workspace/agent/vm-tools/index.mjs';
 			try {
-				await callTool('write_file', { path: '${escapedPath}', content: 'SECURITY_TEST' })
-				console.log('SUCCESS')
+				await callTool('write_file', { path: '${escapedPath}', content: 'SECURITY_TEST' });
+				console.log('SUCCESS');
 			} catch (e) {
-				console.log('BLOCKED:' + e.message)
+				console.log('BLOCKED:' + e.message);
 			}
 		`.replace(/\n/g, ' ').replace(/\t/g, ' ')
 
@@ -622,12 +631,12 @@ export class FlowRunner {
 	async _cleanupSecurityTestFile(fileName) {
 		try {
 			const script = `
-				import { callTool } from '/workspace/agent/vm-tools/index.mjs'
+				import { callTool } from '/workspace/agent/vm-tools/index.mjs';
 				try {
-					await callTool('delete_file', { path: '${fileName}' })
-					console.log('CLEANED')
+					await callTool('delete_file', { path: '${fileName}' });
+					console.log('CLEANED');
 				} catch (e) {
-					console.log('SKIP')
+					console.log('SKIP');
 				}
 			`.replace(/\n/g, ' ').replace(/\t/g, ' ')
 

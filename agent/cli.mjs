@@ -425,6 +425,85 @@ program
 	})
 
 /**
+ * Prompts command - Display all agent prompts with resolved templates
+ */
+program
+	.command('prompts')
+	.description('Display all agent prompts with resolved templates and settings')
+	.action(async () => {
+		try {
+			const { resolveTemplatePlaceholders } = await import('./core/template-resolver.mjs')
+			
+			// Load configuration
+			const configLoader = new ConfigLoader()
+			await configLoader.load()
+			const config = configLoader.getConfig()
+
+			for (const agent of config.agents) {
+				// Load prompt file
+				const promptFile = agent.prompt_file.split('/').pop()
+				const promptPath = path.join('.flow/prompts', promptFile)
+				
+				let prompt
+				try {
+					prompt = await fs.readFile(promptPath, 'utf-8')
+					// Resolve placeholders (show {{INTENT}} as literal since no actual intent)
+					prompt = await resolveTemplatePlaceholders(prompt, '.flow/prompts', '{{INTENT}}')
+				} catch (error) {
+					prompt = `[Error loading prompt: ${error.message}]`
+				}
+
+				// Output markdown for each agent
+				console.log(`# ${agent.name}\n`)
+				
+				console.log(`## Settings\n`)
+				console.log(`| Setting | Value |`)
+				console.log(`|---------|-------|`)
+				console.log(`| Model | ${agent.model} |`)
+				console.log(`| Temperature | ${agent.settings?.temperature ?? 'default'} |`)
+				console.log(`| Max Turns | ${agent.max_turns} |`)
+				if (agent.is_gatekeeper) {
+					console.log(`| Gatekeeper | Yes |`)
+				}
+				console.log()
+
+				// File constraints
+				if (agent.file_constraints) {
+					console.log(`## File Constraints\n`)
+					const patterns = agent.file_constraints.write_patterns || []
+					const excludes = agent.file_constraints.exclude_patterns || []
+					if (patterns.length === 0) {
+						console.log(`Read-only (no writes allowed)\n`)
+					} else {
+						console.log(`Write patterns: ${patterns.map(p => '`' + p + '`').join(', ')}\n`)
+						if (excludes.length > 0) {
+							console.log(`Exclude patterns: ${excludes.map(p => '`' + p + '`').join(', ')}\n`)
+						}
+					}
+				}
+
+				// Tools
+				console.log(`## Tools\n`)
+				const tools = agent.mcp_tools?.include || []
+				if (tools.length === 0) {
+					console.log(`None\n`)
+				} else {
+					tools.forEach(t => console.log(`- ${t}`))
+					console.log()
+				}
+
+				// Prompt content
+				console.log(`## Prompt\n`)
+				console.log(prompt)
+				console.log(`\n---\n`)
+			}
+		} catch (error) {
+			console.error(chalk.red('Failed to display prompts:'), error.message)
+			process.exit(1)
+		}
+	})
+
+/**
  * List command - List checkpoints
  */
 program

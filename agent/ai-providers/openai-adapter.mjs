@@ -1,4 +1,5 @@
 import OpenAI from 'openai'
+import chalk from 'chalk'
 import { BaseAIAdapter } from './base-adapter.mjs'
 
 /**
@@ -103,9 +104,7 @@ export class OpenAIAdapter extends BaseAIAdapter {
 				) {
 					// Exponential backoff
 					const delay = Math.min(1000 * Math.pow(2, attempt), 10000)
-					console.error(
-						`OpenAI API error (attempt ${attempt}/${this.maxRetries}): ${error.message}. Retrying in ${delay}ms...`
-					)
+					this._logApiError(attempt, this.maxRetries, error.status, error.message, delay)
 					await new Promise((resolve) => setTimeout(resolve, delay))
 				} else {
 					// Non-retryable error
@@ -168,6 +167,34 @@ export class OpenAIAdapter extends BaseAIAdapter {
 				}
 			}
 		}
+	}
+
+	/**
+	 * Display API error in a prominent red box
+	 */
+	_logApiError(attempt, maxRetries, status, message, delay) {
+		const W = 60
+		const line = (c) => `║  ${c.padEnd(W - 4)}  ║`
+
+		const title =
+			status === 429
+				? 'API ERROR - Rate Limit (429)'
+				: status === 500
+					? 'API ERROR - Server Error (500)'
+					: status === 503
+						? 'API ERROR - Service Unavailable (503)'
+						: `API ERROR (${status})`
+
+		console.error(chalk.red(`\n╔${'═'.repeat(W)}╗`))
+		console.error(chalk.red(line(title)))
+		console.error(chalk.red(`╠${'═'.repeat(W)}╣`))
+		console.error(chalk.red(line('')))
+		// Truncate message to fit, show first meaningful part
+		const shortMsg = message.length > W - 6 ? message.substring(0, W - 9) + '...' : message
+		console.error(chalk.red(line(shortMsg)))
+		console.error(chalk.red(line(`Retrying in ${delay}ms... (attempt ${attempt}/${maxRetries})`)))
+		console.error(chalk.red(line('')))
+		console.error(chalk.red(`╚${'═'.repeat(W)}╝\n`))
 	}
 }
 

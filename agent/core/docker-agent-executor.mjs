@@ -165,7 +165,7 @@ async function resolveTemplatePlaceholders(content, templateDir, userIntent) {
 			commonContent = await resolveTemplatePlaceholders(commonContent, templateDir, userIntent)
 			resolved = resolved.replace(match[0], commonContent)
 		} catch (error) {
-			console.error('Warning: Template placeholder {{' + name + '}} not found at ' + commonPath)
+			console.error('❌ TEMPLATE ERROR: {{' + name + '}} - ' + error.message + ' (path: ' + commonPath + ')')
 		}
 	}
 	return resolved
@@ -205,7 +205,11 @@ async function main() {
 		let systemPrompt = await fs.readFile(promptPath, 'utf-8')
 
 		// Resolve template placeholders ({{SHARED}}, {{INTENT}}, etc.)
+		console.error('[Templating] Resolving placeholders in: ' + promptPath)
+		const beforeLen = systemPrompt.length
 		systemPrompt = await resolveTemplatePlaceholders(systemPrompt, '/project/.flow/prompts', userInput)
+		const hasUnresolved = systemPrompt.includes('{{') && !systemPrompt.includes('{{INTENT}}')
+		console.error('[Templating] Before: ' + beforeLen + ' chars, After: ' + systemPrompt.length + ' chars, Unresolved: ' + hasUnresolved)
 
 		// Initialize messages
 		const messages = [
@@ -270,6 +274,12 @@ async function main() {
 					toolResults: [],
 				}
 
+				// Include inputs on first turn for debugging traces
+				if (turnCount === 1) {
+					turnResult.systemPrompt = systemPrompt
+					turnResult.userInput = userInput
+				}
+
 				// Format tool call for display
 			const formatToolCall = (name, args) => {
 				switch (name) {
@@ -301,7 +311,8 @@ async function main() {
 							console.error('\\n🔧 ' + formatToolCall(toolCall.name, toolCall.arguments))
 
 						// Call tool directly (no HTTP - runs in VM!)
-						const result = await callTool(toolCall.name, toolCall.arguments)
+						// Pass agentConfig for file_constraints enforcement
+						const result = await callTool(toolCall.name, toolCall.arguments, agentConfig)
 
 						// Log tool success to stderr
 						console.error('✓ ' + toolCall.name + ' completed')

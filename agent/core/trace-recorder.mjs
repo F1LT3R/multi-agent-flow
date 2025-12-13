@@ -75,9 +75,9 @@ export class TraceRecorder {
 		if (data.systemPrompt) {
 			parts.push('## System Prompt')
 			parts.push('')
-			parts.push('```markdown')
-			parts.push(data.systemPrompt.substring(0, 500) + (data.systemPrompt.length > 500 ? '...' : ''))
-			parts.push('```')
+		parts.push('```markdown')
+		parts.push(data.systemPrompt)
+		parts.push('```')
 			parts.push('')
 		}
 

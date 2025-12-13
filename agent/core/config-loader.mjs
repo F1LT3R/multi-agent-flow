@@ -46,6 +46,9 @@ export const DEFAULT_CONFIG = {
 			mcp_tools: {
 				include: [],  // No tools - pure text transformation
 			},
+			file_constraints: {
+				write_patterns: [],  // No file writes
+			},
 			prompt_file: './.flow/prompts/WRITE_USER_STORIES.md',
 		},
 		{
@@ -58,6 +61,10 @@ export const DEFAULT_CONFIG = {
 			},
 			mcp_tools: {
 				include: ['list_directory', 'read_file', 'write_file'],
+			},
+			file_constraints: {
+				write_patterns: ['**/*.js', '**/*.mjs', 'package.json'],
+				exclude_patterns: ['**/*.test.js', '**/*.test.mjs'],  // Tests are GENERATE_TESTS's job
 			},
 			prompt_file: './.flow/prompts/GENERATE_CODE.md',
 		},
@@ -72,6 +79,9 @@ export const DEFAULT_CONFIG = {
 			mcp_tools: {
 				include: ['list_directory', 'read_file'],  // Read-only
 			},
+			file_constraints: {
+				write_patterns: [],  // Read-only
+			},
 			prompt_file: './.flow/prompts/PLAN_TESTS.md',
 		},
 		{
@@ -84,6 +94,9 @@ export const DEFAULT_CONFIG = {
 			},
 			mcp_tools: {
 				include: ['list_directory', 'read_file', 'write_file', 'run_node_tests', 'install_dependencies'],
+			},
+			file_constraints: {
+				write_patterns: ['**/*.test.mjs', '**/*.new.test.mjs'],  // Tests only
 			},
 			prompt_file: './.flow/prompts/GENERATE_TESTS.md',
 		},
@@ -99,6 +112,9 @@ export const DEFAULT_CONFIG = {
 			mcp_tools: {
 				include: ['list_directory', 'read_file', 'run_node_tests'],  // Read-only + verify
 			},
+			file_constraints: {
+				write_patterns: [],  // Read-only
+			},
 			prompt_file: './.flow/prompts/REVIEW.md',
 		},
 		{
@@ -112,6 +128,10 @@ export const DEFAULT_CONFIG = {
 			mcp_tools: {
 				include: ['list_directory', 'read_file', 'write_file', 'run_node_tests'],
 			},
+			file_constraints: {
+				write_patterns: ['**/*.js', '**/*.mjs'],  // Code only, no tests
+				exclude_patterns: ['**/*.test.js', '**/*.test.mjs'],
+			},
 			prompt_file: './.flow/prompts/CLEAN_AND_REFACTOR.md',
 		},
 		{
@@ -124,6 +144,9 @@ export const DEFAULT_CONFIG = {
 			},
 			mcp_tools: {
 				include: ['list_directory', 'read_file'],  // Read-only
+			},
+			file_constraints: {
+				write_patterns: [],  // Read-only
 			},
 			prompt_file: './.flow/prompts/REPORT.md',
 		},
@@ -384,6 +407,9 @@ export default {
 			mcp_tools: {
 				include: [],  // No tools - pure text transformation
 			},
+			file_constraints: {
+				write_patterns: [],  // No file writes
+			},
 			prompt_file: './.flow/prompts/WRITE_USER_STORIES.md',
 		},
 		{
@@ -400,6 +426,10 @@ export default {
 			mcp_tools: {
 				include: ['list_directory', 'read_file', 'write_file'],
 			},
+			file_constraints: {
+				write_patterns: ['**/*.js', '**/*.mjs', 'package.json'],
+				exclude_patterns: ['**/*.test.js', '**/*.test.mjs'],  // Tests are GENERATE_TESTS's job
+			},
 			prompt_file: './.flow/prompts/GENERATE_CODE.md',
 		},
 		{
@@ -413,6 +443,9 @@ export default {
 			mcp_tools: {
 				include: ['list_directory', 'read_file'],  // Read-only
 			},
+			file_constraints: {
+				write_patterns: [],  // Read-only
+			},
 			prompt_file: './.flow/prompts/PLAN_TESTS.md',
 		},
 		{
@@ -425,6 +458,9 @@ export default {
 			},
 			mcp_tools: {
 				include: ['list_directory', 'read_file', 'write_file', 'run_node_tests', 'install_dependencies'],
+			},
+			file_constraints: {
+				write_patterns: ['**/*.test.mjs', '**/*.new.test.mjs'],  // Tests only
 			},
 			prompt_file: './.flow/prompts/GENERATE_TESTS.md',
 		},
@@ -440,6 +476,9 @@ export default {
 			mcp_tools: {
 				include: ['list_directory', 'read_file', 'run_node_tests'],  // Read-only + verify
 			},
+			file_constraints: {
+				write_patterns: [],  // Read-only
+			},
 			prompt_file: './.flow/prompts/REVIEW.md',
 		},
 		{
@@ -453,6 +492,10 @@ export default {
 			mcp_tools: {
 				include: ['list_directory', 'read_file', 'write_file', 'run_node_tests'],
 			},
+			file_constraints: {
+				write_patterns: ['**/*.js', '**/*.mjs'],  // Code only, no tests
+				exclude_patterns: ['**/*.test.js', '**/*.test.mjs'],
+			},
 			prompt_file: './.flow/prompts/CLEAN_AND_REFACTOR.md',
 		},
 		{
@@ -465,6 +508,9 @@ export default {
 			},
 			mcp_tools: {
 				include: ['list_directory', 'read_file'],  // Read-only
+			},
+			file_constraints: {
+				write_patterns: [],  // Read-only
 			},
 			prompt_file: './.flow/prompts/REPORT.md',
 		},

@@ -17,6 +17,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import { exec } from 'child_process'
 import { promisify } from 'util'
+import { minimatch } from 'minimatch'
 
 const execAsync = promisify(exec)
 
@@ -111,9 +112,36 @@ export async function read_file({ path: filePath }) {
 /**
  * Write contents to a file with optional prettier formatting
  * - Enforces ratchet protection for read-only test files
+ * - Enforces file_constraints from agent config
  * - Auto-formats with prettier if installed in project
  */
-export async function write_file({ path: filePath, content }) {
+export async function write_file({ path: filePath, content }, fileConstraints = null) {
+	// Check file constraints BEFORE path validation
+	if (fileConstraints) {
+		const { write_patterns, exclude_patterns } = fileConstraints
+		
+		// If write_patterns is empty, agent is read-only
+		if (write_patterns && write_patterns.length === 0) {
+			throw new Error(`Agent is read-only and cannot write files`)
+		}
+		
+		// Check if file matches allowed patterns
+		if (write_patterns && write_patterns.length > 0) {
+			const matchesInclude = write_patterns.some(p => minimatch(filePath, p))
+			if (!matchesInclude) {
+				throw new Error(`Agent cannot write "${filePath}" - allowed patterns: ${write_patterns.join(', ')}`)
+			}
+		}
+		
+		// Check if file matches excluded patterns
+		if (exclude_patterns && exclude_patterns.length > 0) {
+			const matchesExclude = exclude_patterns.some(p => minimatch(filePath, p))
+			if (matchesExclude) {
+				throw new Error(`Agent cannot write "${filePath}" - excluded by pattern: ${exclude_patterns.join(', ')}`)
+			}
+		}
+	}
+	
 	const resolvedPath = await validatePath(filePath, true)
 	await fs.mkdir(path.dirname(resolvedPath), { recursive: true })
 
