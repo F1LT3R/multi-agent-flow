@@ -49,7 +49,7 @@ async function patternMatchesFiles(pattern) {
 export async function run_node_tests({ pattern, test_file } = {}) {
 	try {
 		let testTarget = pattern || test_file
-		
+
 		// If a pattern/file was provided, check if it exists
 		if (testTarget) {
 			const hasFiles = await patternMatchesFiles(testTarget)
@@ -88,7 +88,10 @@ export async function run_node_tests({ pattern, test_file } = {}) {
 
 		const { stdout, stderr } = await execAsync(
 			`cd "${PROJECT_ROOT}" && node --test ${testTarget}`,
-			{ maxBuffer: 10 * 1024 * 1024 }
+			{
+				maxBuffer: 10 * 1024 * 1024,
+				env: { ...process.env, FORCE_COLOR: '1' }
+			}
 		)
 
 		return {
@@ -116,7 +119,7 @@ export async function run_puppeteer({ testFile }) {
 		// PUPPETEER_EXECUTABLE_PATH is set in the Docker image to use system chromium
 		const { stdout, stderr } = await execAsync(
 			`cd "${PROJECT_ROOT}" && NODE_PATH=/workspace/agent/node_modules node ${testFile}`,
-			{ 
+			{
 				maxBuffer: 10 * 1024 * 1024,
 				timeout: 300000, // 5 minutes for browser tests
 			}
