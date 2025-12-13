@@ -123,8 +123,8 @@ export class FlowRunner {
 			await this.dockerManager.startContainer()
 			await this.dockerManager.waitForHealthy()
 
-			// Validate VM isolation before running agents
-			await this._validateVMIsolation()
+			// Run security checks before running agents
+			await this._runSecurityChecks()
 		} catch (error) {
 			console.error(chalk.red('[Docker] Failed to start container:'), error.message)
 			throw error
@@ -494,44 +494,146 @@ export class FlowRunner {
 	}
 
 	/**
-	 * Validate VM isolation before executing agents
-	 * SECURITY: Ensures Docker mounts are configured correctly
+	 * Run comprehensive security checks before executing agents
+	 * SECURITY: Validates VM isolation with active escape tests
+	 * All checks must pass or the container is immediately terminated
 	 */
-	async _validateVMIsolation() {
-		console.log(chalk.cyan('[Security] Validating VM isolation...'))
+	async _runSecurityChecks() {
+		const checks = []
+		const BOX_WIDTH = 64
 
-		try {
-			// Test 1: Verify container is running
-			const inspect = await this.dockerManager.container.inspect()
-			if (!inspect.State.Running) {
-				throw new Error('Container is not running')
-			}
-
-		// Test 2: Verify mounts are present
-		const mounts = inspect.Mounts
-	const requiredMounts = [
-		{ path: '/project', mode: 'rw' },            // User project root
-	]
-
-		for (const required of requiredMounts) {
-			const mount = mounts.find(m => m.Destination === required.path)
-			if (!mount) {
-				throw new Error(`Missing mount: ${required.path}`)
-			}
-			if (!mount.RW && required.mode === 'rw') {
-				throw new Error(`Mount ${required.path} should be writable but is read-only`)
-			}
-			if (mount.RW && required.mode === 'ro') {
-				throw new Error(`Mount ${required.path} should be read-only but is writable`)
+		const logCheck = (id, name, passed, detail = '') => {
+			checks.push({ id, name, passed, detail })
+			const status = passed ? chalk.green('[PASS]') : chalk.red('[FAIL]')
+			const padding = '.'.repeat(Math.max(1, 48 - name.length))
+			console.log(`║  [${id}] ${name} ${padding} ${status} ║`)
+			if (!passed && detail) {
+				console.log(chalk.red(`║         ${detail.substring(0, 50).padEnd(53)}║`))
 			}
 		}
 
-	console.log(chalk.green('[Security] ✓ VM isolation validated'))
-	console.log(chalk.gray(`  - User project: /project (Read-Write)`))
-	console.log(chalk.gray(`  - Agent code: /workspace/agent (Built-in, isolated)`))
+		console.log(chalk.cyan.bold('\n╔' + '═'.repeat(BOX_WIDTH) + '╗'))
+		console.log(chalk.cyan.bold('║' + '                      SECURITY VALIDATION                      ' + '║'))
+		console.log(chalk.cyan.bold('╠' + '═'.repeat(BOX_WIDTH) + '╣'))
+
+		// SEC-01: Container running
+		let inspect
+		try {
+			inspect = await this.dockerManager.container.inspect()
+			logCheck('SEC-01', 'Container running', inspect.State.Running)
+			if (!inspect.State.Running) {
+				await this._securityFailure('SEC-01', 'Container is not running')
+			}
 		} catch (error) {
-			console.error(chalk.red('[Security] VM isolation validation failed:'), error.message)
-			throw new Error(`VM isolation validation failed: ${error.message}`)
+			logCheck('SEC-01', 'Container running', false, error.message)
+			await this._securityFailure('SEC-01', error.message)
+		}
+
+		// SEC-02: Mount /project verified
+		const mount = inspect.Mounts.find(m => m.Destination === '/project')
+		const mountValid = !!mount && mount.RW
+		logCheck('SEC-02', 'Mount /project verified', mountValid)
+		if (!mountValid) {
+			await this._securityFailure('SEC-02', 'Mount /project missing or not writable')
+		}
+
+		// SEC-03 to SEC-07: Active escape tests (run inside container)
+		const escapeTests = [
+			{ id: 'SEC-03', name: 'Absolute path blocked', path: '/tmp/escape.txt', shouldFail: true },
+			{ id: 'SEC-04', name: 'Parent traversal blocked', path: '../escape.txt', shouldFail: true },
+			{ id: 'SEC-05', name: 'Nested traversal blocked', path: 'a/b/../../../escape.txt', shouldFail: true },
+			{ id: 'SEC-06', name: 'Protected dir (.flow/) blocked', path: '.flow/breach.txt', shouldFail: true },
+			{ id: 'SEC-07', name: 'Valid write allowed', path: '.security-check-temp.txt', shouldFail: false },
+		]
+
+		for (const test of escapeTests) {
+			const result = await this._testWriteEscape(test.path)
+			const passed = test.shouldFail ? !result.success : result.success
+			logCheck(test.id, test.name, passed, result.error)
+
+			if (!passed) {
+				await this._securityFailure(test.id, `Write escape ${test.shouldFail ? 'succeeded' : 'failed'} with path "${test.path}"`)
+			}
+		}
+
+		// Cleanup temp file from SEC-07
+		await this._cleanupSecurityTestFile('.security-check-temp.txt')
+
+		console.log(chalk.cyan.bold('╠' + '═'.repeat(BOX_WIDTH) + '╣'))
+		console.log(chalk.green.bold('║  ALL SECURITY CHECKS PASSED - Agents may proceed               ║'))
+		console.log(chalk.cyan.bold('╚' + '═'.repeat(BOX_WIDTH) + '╝\n'))
+	}
+
+	/**
+	 * Handle security check failure - terminate container and throw
+	 */
+	async _securityFailure(checkId, reason) {
+		const BOX_WIDTH = 64
+		console.log(chalk.red.bold('╠' + '═'.repeat(BOX_WIDTH) + '╣'))
+		console.log(chalk.red.bold('║  *** SECURITY VIOLATION DETECTED ***                            ║'))
+		console.log(chalk.red.bold('╠' + '═'.repeat(BOX_WIDTH) + '╣'))
+		console.log(chalk.red.bold(`║  ${checkId}: ${reason.substring(0, 55).padEnd(58)}║`))
+		console.log(chalk.red.bold('║  Container terminated immediately.                               ║'))
+		console.log(chalk.red.bold('╚' + '═'.repeat(BOX_WIDTH) + '╝'))
+
+		try {
+			await this.dockerManager.stopContainer()
+		} catch (err) {
+			// Ignore errors during emergency shutdown
+		}
+
+		throw new Error(`SECURITY BREACH: ${checkId} failed - ${reason}. Container terminated.`)
+	}
+
+	/**
+	 * Test if a write to the given path succeeds or is blocked
+	 * Runs the actual vm-tools write_file inside the container
+	 */
+	async _testWriteEscape(testPath) {
+		// Escape the path for use in the script
+		const escapedPath = testPath.replace(/'/g, "\\'")
+		const script = `
+			import { callTool } from '/workspace/agent/vm-tools/index.mjs'
+			try {
+				await callTool('write_file', { path: '${escapedPath}', content: 'SECURITY_TEST' })
+				console.log('SUCCESS')
+			} catch (e) {
+				console.log('BLOCKED:' + e.message)
+			}
+		`.replace(/\n/g, ' ').replace(/\t/g, ' ')
+
+		try {
+			const result = await this.dockerManager.exec(`node --input-type=module -e "${script}"`)
+			return {
+				success: result.includes('SUCCESS'),
+				error: result.includes('BLOCKED:') ? result.split('BLOCKED:')[1].trim() : null
+			}
+		} catch (error) {
+			return {
+				success: false,
+				error: error.message
+			}
+		}
+	}
+
+	/**
+	 * Cleanup the security test temp file
+	 */
+	async _cleanupSecurityTestFile(fileName) {
+		try {
+			const script = `
+				import { callTool } from '/workspace/agent/vm-tools/index.mjs'
+				try {
+					await callTool('delete_file', { path: '${fileName}' })
+					console.log('CLEANED')
+				} catch (e) {
+					console.log('SKIP')
+				}
+			`.replace(/\n/g, ' ').replace(/\t/g, ' ')
+
+			await this.dockerManager.exec(`node --input-type=module -e "${script}"`)
+		} catch (error) {
+			// Ignore cleanup errors
 		}
 	}
 }

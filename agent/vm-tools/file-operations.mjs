@@ -38,7 +38,7 @@ async function isReadOnly(filePath) {
 
 /**
  * Validate and resolve path with security checks
- * SECURITY: Prevents path traversal attacks and blocks protected directories
+ * SECURITY: Prevents path traversal attacks, symlink escapes, and blocks protected directories
  */
 async function validatePath(relativePath, isWriteOperation = false) {
 	// CRITICAL: Block absolute paths
@@ -51,10 +51,21 @@ async function validatePath(relativePath, isWriteOperation = false) {
 		throw new Error(`Parent directory access not allowed: ${relativePath}`)
 	}
 
-	// Resolve path relative to project root
-	const resolved = path.resolve(PROJECT_ROOT, relativePath)
+	// Resolve path relative to project root (logical path)
+	const logicalPath = path.resolve(PROJECT_ROOT, relativePath)
 
-	// Ensure resolved path is within project root
+	// CRITICAL: Resolve symlinks to get real path (closes symlink escape vector)
+	// If a symlink points outside /project, realpath will reveal the true destination
+	let resolved
+	try {
+		resolved = await fs.realpath(logicalPath)
+	} catch (err) {
+		// File doesn't exist yet - use logical path (safe for new files)
+		// New files can't be symlinks, so logical path is safe
+		resolved = logicalPath
+	}
+
+	// Ensure resolved path is within project root (catches symlink escapes)
 	if (!resolved.startsWith(PROJECT_ROOT + path.sep) && resolved !== PROJECT_ROOT) {
 		throw new Error(`Path escape attempt: ${relativePath}`)
 	}
