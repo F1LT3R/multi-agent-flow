@@ -237,13 +237,35 @@ async function main() {
 					toolResults: [],
 				}
 
-				// Execute tool calls if present
+				// Format tool call for display
+			const formatToolCall = (name, args) => {
+				switch (name) {
+					case 'list_directory':
+						return \`list_directory('\${args.path || '.'}')\`
+					case 'read_file':
+						return \`read_file('\${args.path}')\`
+					case 'write_file':
+						return \`write_file('\${args.path}')\`
+					case 'delete_file':
+						return \`delete_file('\${args.path}')\`
+					case 'move_file':
+						return \`move_file('\${args.source}' -> '\${args.destination}')\`
+					case 'grep':
+						return \`grep('\${args.pattern}', '\${args.path || '.'}')\`
+					case 'run_node_tests':
+						return args.pattern ? \`run_node_tests('\${args.pattern}')\` : 'run_node_tests()'
+					default:
+						return \`\${name}(...)\`
+				}
+			}
+
+			// Execute tool calls if present
 				if (response.toolCalls && response.toolCalls.length > 0) {
 					for (let i = 0; i < response.toolCalls.length; i++) {
 						const toolCall = response.toolCalls[i]
 						try {
 							// Log tool call start to stderr
-							console.error('\\n🔧 ' + toolCall.name + '(...)')
+							console.error('\\n🔧 ' + formatToolCall(toolCall.name, toolCall.arguments))
 
 						// Call tool directly (no HTTP - runs in VM!)
 						const result = await callTool(toolCall.name, toolCall.arguments)
