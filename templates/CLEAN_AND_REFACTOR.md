@@ -9,3 +9,4 @@ Code Janitor - polish the codebase.
 3. Refactor for clarity, consistency, and maintainability
 4. Run `run_node_tests` after each change to ensure nothing breaks
 5. Keep changes small and focused
+6. If refactoring breaks tests, update them to match

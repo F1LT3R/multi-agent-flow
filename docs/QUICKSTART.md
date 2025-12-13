@@ -20,8 +20,8 @@ cd ~/test-calc
 # 2. Initialize the project
 agent-flow init
 
-# 3. Add your OpenAI API key
-echo "OPENAI_API_KEY=sk-your-key-here" > .env
+# 3. Set your API key (if not already in ~/.zshrc or ~/.bashrc)
+export OPENAI_API_KEY=sk-your-key-here
 
 # 4. Run it
 agent-flow run "Build a calculator with add, subtract, multiply, divide"

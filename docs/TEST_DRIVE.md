@@ -18,14 +18,10 @@ npm install
 
 ### 2. Set Up Environment
 
-Create a `.env` file in the project root:
+Set your API key (add to `~/.zshrc` or `~/.bashrc` for persistence):
 
 ```bash
-# Copy the example
-cp .env.example .env
-
-# Edit and add your API key
-echo "OPENAI_API_KEY=sk-your-actual-key-here" >> .env
+export OPENAI_API_KEY=sk-your-actual-key-here
 ```
 
 ### 3. Initialize Test Project
@@ -52,10 +48,12 @@ This creates:
 - `./traces/` - Execution traces
 - `agent-flow.config.mjs` - Configuration
 
-### 4. Add API Key to Test Project
+### 4. Verify API Key
+
+Make sure your API key is set in your environment:
 
 ```bash
-echo "OPENAI_API_KEY=sk-your-actual-key-here" > .env
+echo $OPENAI_API_KEY  # Should show your key
 ```
 
 ## Test Scenarios

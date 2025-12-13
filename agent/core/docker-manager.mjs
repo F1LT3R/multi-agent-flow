@@ -142,6 +142,7 @@ export class DockerManager {
 				`ANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY || ''}`,
 				`GOOGLE_AI_API_KEY=${process.env.GOOGLE_AI_API_KEY || ''}`,
 				`XAI_API_KEY=${process.env.XAI_API_KEY || ''}`,
+				`DEEPSEEK_API_KEY=${process.env.DEEPSEEK_API_KEY || ''}`,
 			],
 		}
 

@@ -31,15 +31,18 @@ This creates the project structure and copies prompt templates to `./prompts/`.
 
 ### 3. Configure Environment
 
-Copy the environment template and add your API key:
+Set your API key (add to `~/.zshrc` or `~/.bashrc` for persistence):
 
 ```bash
-cp .env.example .env
+export OPENAI_API_KEY=sk-your-actual-api-key-here
 ```
 
-Edit `.env` and add your OpenAI API key:
-```
-OPENAI_API_KEY=sk-your-actual-api-key-here
+Other supported providers:
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...   # Anthropic (Claude)
+export GOOGLE_AI_API_KEY=...          # Google (Gemini)
+export XAI_API_KEY=...                # xAI (Grok)
+export DEEPSEEK_API_KEY=...           # DeepSeek
 ```
 
 ### 3. Make CLI Available Globally (Optional)
@@ -66,7 +69,7 @@ agent-flow init
 This creates:
 - `agent-flow.config.mjs` - Configuration file
 - `./project/` - Where agents write code
-- `./tests/` - Permanent test storage  
+- `./tests/` - Permanent test storage
 - `./plans/` - User stories and planning docs
 - `./prompts/` - Agent instruction templates
 

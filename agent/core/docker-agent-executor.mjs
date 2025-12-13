@@ -180,6 +180,21 @@ async function resolveTemplatePlaceholders(content, templateDir, userIntent) {
 	return resolved
 }
 
+// Format file constraints for injection into system prompt
+function formatFileConstraints(constraints) {
+	if (!constraints) return ''
+	const lines = ['# File Constraints']
+	if (constraints.write_patterns && constraints.write_patterns.length > 0) {
+		lines.push('You CAN write files matching: ' + constraints.write_patterns.join(', '))
+	} else {
+		lines.push('You CANNOT write any files (read-only agent).')
+	}
+	if (constraints.exclude_patterns && constraints.exclude_patterns.length > 0) {
+		lines.push('You CANNOT write files matching: ' + constraints.exclude_patterns.join(', '))
+	}
+	return lines.join('\\n')
+}
+
 // Write trace file directly to disk (bypasses stdout JSON serialization limits)
 function writeTrace(agentName, flowRun, turn, data) {
 	const now = new Date()
@@ -316,6 +331,13 @@ async function main() {
 		systemPrompt = await resolveTemplatePlaceholders(systemPrompt, '/project/.flow/prompts', userInput)
 		const hasUnresolved = systemPrompt.includes('{{') && !systemPrompt.includes('{{INTENT}}')
 		console.error('[Templating] Before: ' + beforeLen + ' chars, After: ' + systemPrompt.length + ' chars, Unresolved: ' + hasUnresolved)
+
+		// Inject file constraints so agent knows its boundaries upfront
+		const constraintSection = formatFileConstraints(agentConfig.file_constraints)
+		if (constraintSection) {
+			systemPrompt += '\\n\\n' + constraintSection
+			console.error('[Constraints] Injected file constraints into system prompt')
+		}
 
 		// Initialize messages
 		const messages = [

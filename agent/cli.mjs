@@ -3,7 +3,6 @@
 import { Command } from 'commander'
 import chalk from 'chalk'
 import ora from 'ora'
-import dotenv from 'dotenv'
 import fs from 'fs/promises'
 import path from 'path'
 import { ConfigLoader } from './core/config-loader.mjs'
@@ -11,9 +10,6 @@ import { FlowRunner } from './core/flow-runner.mjs'
 import { CheckpointManager } from './core/checkpoint-manager.mjs'
 // AgentExecutor, MCPClient, Ratchet, and HTTP MCP servers removed
 // Tools now run directly inside Docker VM for security
-
-// Load environment variables
-dotenv.config()
 
 const program = new Command()
 
@@ -157,20 +153,25 @@ program
 			spinner.info('No bundled templates found (create prompts manually)')
 		}
 
-			// Create .env file if it doesn't exist
-			spinner.start('Setting up environment...')
-
-			const envPath = path.join(projectRoot, '.env')
-			try {
-				await fs.access(envPath)
-				spinner.info('.env file already exists')
-			} catch {
-				spinner.warn('.env file not found. Copy .env.example and add your API keys.')
-			}
-
 		console.log(chalk.green.bold('\n✅ Initialization complete!\n'))
 		console.log(chalk.yellow('Next steps:'))
-		console.log('  1. Add your OpenAI API key to .env')
+		console.log('  1. Set your API key (add to ~/.zshrc or ~/.bashrc):')
+		console.log('')
+		console.log(chalk.dim('     # OpenAI (GPT-4o, GPT-4o-mini)'))
+		console.log('     export OPENAI_API_KEY=sk-...')
+		console.log('')
+		console.log(chalk.dim('     # Anthropic (Claude)'))
+		console.log('     export ANTHROPIC_API_KEY=sk-ant-...')
+		console.log('')
+		console.log(chalk.dim('     # Google (Gemini)'))
+		console.log('     export GOOGLE_AI_API_KEY=...')
+		console.log('')
+		console.log(chalk.dim('     # xAI (Grok)'))
+		console.log('     export XAI_API_KEY=...')
+		console.log('')
+		console.log(chalk.dim('     # DeepSeek'))
+		console.log('     export DEEPSEEK_API_KEY=...')
+		console.log('')
 		console.log('  2. Ensure Docker is running (for agent isolation)')
 		console.log('  3. Review .flow/flow.config.mjs')
 		console.log('  4. Customize prompts in .flow/prompts/ (optional)')
