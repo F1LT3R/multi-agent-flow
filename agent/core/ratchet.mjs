@@ -105,6 +105,91 @@ export class Ratchet {
 	}
 
 	/**
+	 * Find all .new.test.* files in project (public wrapper)
+	 * @returns {Promise<string[]>} Array of file paths
+	 */
+	async findNewTestFiles() {
+		return this._findNewTestFiles(this.projectRoot)
+	}
+
+	/**
+	 * Finalize with user-approved changes only
+	 * @param {Object} decisions - User decisions from approval dialog
+	 * @param {string[]} decisions.approved - Files to promote and ratchet
+	 * @param {string[]} decisions.rejected - Files to delete
+	 * @param {string[]} decisions.skipped - Files to leave in place
+	 */
+	async finalizeWithApprovals({ approved = [], rejected = [], skipped = [] }) {
+		console.log('[Ratchet] Finalizing with user approvals...')
+
+		const operations = []
+
+		// Promote only approved files
+		for (const file of approved) {
+			const newName = file.replace('.new.test.', '.test.')
+
+			try {
+				// Remove old file if exists (was read-only ratcheted test)
+				try {
+					await fs.chmod(newName, 0o644)
+					await fs.unlink(newName)
+				} catch (e) {
+					// File didn't exist, that's fine
+				}
+
+				// Rename the .new. file
+				await fs.rename(file, newName)
+
+				operations.push({
+					type: 'promote',
+					from: path.relative(this.projectRoot, file),
+					to: path.relative(this.projectRoot, newName),
+				})
+
+				console.log(`[Ratchet] Promoted: ${path.basename(file)} → ${path.basename(newName)}`)
+			} catch (error) {
+				console.error(`[Ratchet] Failed to promote ${file}: ${error.message}`)
+				throw error
+			}
+		}
+
+		// Delete rejected files
+		for (const file of rejected) {
+			try {
+				await fs.unlink(file)
+				operations.push({
+					type: 'reject',
+					file: path.relative(this.projectRoot, file),
+				})
+				console.log(`[Ratchet] Deleted rejected: ${path.basename(file)}`)
+			} catch (error) {
+				console.error(`[Ratchet] Failed to delete ${file}: ${error.message}`)
+			}
+		}
+
+		// Skipped files are left in place - no action needed
+		for (const file of skipped) {
+			console.log(`[Ratchet] Skipped (kept): ${path.basename(file)}`)
+		}
+
+		// Ratchet all current test files (including newly promoted ones)
+		const ratcheted = await this._ratchetTests()
+		operations.push(...ratcheted)
+
+		console.log(`[Ratchet] Approval finalization complete. ${operations.length} operations.`)
+
+		return {
+			success: true,
+			operations,
+			summary: {
+				approved: approved.length,
+				rejected: rejected.length,
+				skipped: skipped.length,
+			},
+		}
+	}
+
+	/**
 	 * Clean orphaned .new.test.* files from previous abandoned runs
 	 * Only called on NEW runs (not reflows)
 	 */

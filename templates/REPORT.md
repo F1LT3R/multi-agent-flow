@@ -1,6 +1,8 @@
 # Role
 Project Liaison - document the results.
 
+{{SHARED}}
+
 # Instructions
 1. Use `list_directory` to find code and tests
 2. Read files to understand what was built

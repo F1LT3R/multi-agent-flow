@@ -3,6 +3,7 @@ import { CheckpointManager, createStateSnapshot, restoreStateFromSnapshot } from
 import { DockerManager } from './docker-manager.mjs'
 import { Ratchet } from './ratchet.mjs'
 import { SnapshotManager } from './snapshot-manager.mjs'
+import { promptForApproval } from './diff-approval.mjs'
 import readline from 'readline'
 import chalk from 'chalk'
 import fs from 'fs/promises'
@@ -39,9 +40,61 @@ export class FlowRunner {
 	}
 
 	/**
+	 * Validate template placeholders before running agents
+	 * Fails fast if any placeholder references a missing file
+	 */
+	async validateTemplates() {
+		const RESERVED_PLACEHOLDERS = ['INTENT']  // Dynamic placeholders, not file-based
+		const promptsDir = path.join(process.cwd(), '.flow/prompts')
+		const commonDir = path.join(promptsDir, 'common')
+		const pattern = /\{\{(\w+)\}\}/g
+		const errors = []
+
+		// Check each agent's prompt file
+		for (const agent of this.config.agents) {
+			// Extract filename from prompt_file path
+			let promptFile = agent.prompt_file
+			if (promptFile.includes('.flow/prompts/')) {
+				promptFile = promptFile.split('.flow/prompts/').pop()
+			} else if (promptFile.includes('prompts/')) {
+				promptFile = promptFile.split('prompts/').pop()
+			}
+			const promptPath = path.join(promptsDir, promptFile)
+
+			try {
+				const content = await fs.readFile(promptPath, 'utf-8')
+				let match
+				while ((match = pattern.exec(content)) !== null) {
+					const name = match[1]
+
+					// Skip reserved dynamic placeholders
+					if (RESERVED_PLACEHOLDERS.includes(name)) continue
+
+					const commonPath = path.join(commonDir, `${name}.md`)
+					try {
+						await fs.access(commonPath)
+					} catch {
+						errors.push(`${agent.name}: placeholder {{${name}}} requires missing file: common/${name}.md`)
+					}
+				}
+			} catch (error) {
+				// Prompt file doesn't exist yet - skip validation
+				// (cli.mjs will copy templates during init)
+			}
+		}
+
+		if (errors.length > 0) {
+			throw new Error(`Template validation failed:\n${errors.join('\n')}`)
+		}
+	}
+
+	/**
 	 * Run the flow
 	 */
 	async run(userInput, runId = null) {
+		// Validate templates before anything else
+		await this.validateTemplates()
+
 		// Initialize
 		await this.checkpointManager.initialize()
 
@@ -114,8 +167,20 @@ export class FlowRunner {
 				console.log(chalk.green.bold('\n[FlowRunner] Flow completed successfully!'))
 				flowSuccess = true
 
-				// Ratchet successful artifacts (promote tests, copy to ratchet)
-				await this.ratchet.finalizeSuccess()
+				// Check for test file changes that need approval
+				const newTestFiles = await this.ratchet.findNewTestFiles()
+				if (newTestFiles.length > 0) {
+					// Prompt user to approve test changes
+					const decisions = await promptForApproval(
+						newTestFiles,
+						this.ratchet.testsRatchet,
+						this.ratchet.projectRoot
+					)
+					await this.ratchet.finalizeWithApprovals(decisions)
+				} else {
+					// No new test files - just ratchet existing tests
+					await this.ratchet.finalizeSuccess()
+				}
 
 				// Create snapshot of successful run
 				try {

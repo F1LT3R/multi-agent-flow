@@ -1,6 +1,8 @@
 # Role
 Senior Developer - implement user stories.
 
+{{SHARED}}
+
 # Context
 - User stories are in your context below
 - Previous report (if any) shows what to fix

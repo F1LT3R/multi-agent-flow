@@ -140,6 +140,36 @@ import { callTool, getToolDefinitions } from '/workspace/agent/vm-tools/index.mj
 import { getCost, getContextWindow, getContextPercent } from '/workspace/agent/data/model-pricing.mjs'
 import fs from 'fs/promises'
 import { writeFileSync } from 'fs'
+import path from 'path'
+
+// Resolve template placeholders like {{SHARED}} and {{INTENT}}
+async function resolveTemplatePlaceholders(content, templateDir, userIntent) {
+	const pattern = /\\{\\{(\\w+)\\}\\}/g
+	let resolved = content
+	const matches = [...content.matchAll(/\\{\\{(\\w+)\\}\\}/g)]
+
+	for (const match of matches) {
+		const name = match[1]
+
+		// Reserved dynamic placeholder - inject user intent
+		if (name === 'INTENT') {
+			resolved = resolved.replace(match[0], userIntent || '')
+			continue
+		}
+
+		// File-based placeholder - load from common/ directory
+		const commonPath = path.join(templateDir, 'common', name + '.md')
+		try {
+			let commonContent = await fs.readFile(commonPath, 'utf-8')
+			// Recursively resolve placeholders in the included content
+			commonContent = await resolveTemplatePlaceholders(commonContent, templateDir, userIntent)
+			resolved = resolved.replace(match[0], commonContent)
+		} catch (error) {
+			console.error('Warning: Template placeholder {{' + name + '}} not found at ' + commonPath)
+		}
+	}
+	return resolved
+}
 
 // Wrap everything in try-catch to ensure JSON output even on error
 async function main() {
@@ -172,7 +202,10 @@ async function main() {
 				}
 			}
 		}
-		const systemPrompt = await fs.readFile(promptPath, 'utf-8')
+		let systemPrompt = await fs.readFile(promptPath, 'utf-8')
+
+		// Resolve template placeholders ({{SHARED}}, {{INTENT}}, etc.)
+		systemPrompt = await resolveTemplatePlaceholders(systemPrompt, '/project/.flow/prompts', userInput)
 
 		// Initialize messages
 		const messages = [

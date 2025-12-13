@@ -81,16 +81,25 @@ program
 			'REPORT.md',
 		]
 
+		// Common templates (shared across all agents)
+		const commonFiles = [
+			'SHARED.md',
+		]
+
 		// Determine template source directory
 		// If running from repo, use ./templates
 		// If installed globally, templates are in the package
 		const packageRoot = path.join(path.dirname(new URL(import.meta.url).pathname), '..')
 		const templatesDir = path.join(packageRoot, 'templates')
 		const userPromptsDir = path.join(projectRoot, '.flow/prompts')
+		const userCommonDir = path.join(userPromptsDir, 'common')
 
 		try {
 			// Check if templates directory exists
 			await fs.access(templatesDir)
+
+			// Ensure common directory exists
+			await fs.mkdir(userCommonDir, { recursive: true })
 
 			// Copy each template file
 			let copiedCount = 0
@@ -114,8 +123,28 @@ program
 				}
 			}
 
-			if (copiedCount === promptFiles.length) {
-				spinner.succeed('Prompt templates copied')
+			// Copy common template files
+			for (const file of commonFiles) {
+				const sourcePath = path.join(templatesDir, 'common', file)
+				const destPath = path.join(userCommonDir, file)
+
+				try {
+					// Check if destination already exists
+					await fs.access(destPath)
+					// File exists, skip
+				} catch {
+					// File doesn't exist, try to copy it
+					try {
+						await fs.copyFile(sourcePath, destPath)
+						copiedCount++
+					} catch {
+						// Source doesn't exist, skip silently
+					}
+				}
+			}
+
+			if (copiedCount === promptFiles.length + commonFiles.length) {
+				spinner.succeed('Prompt templates copied (including common/)')
 			} else if (copiedCount > 0) {
 				spinner.succeed(`Copied ${copiedCount} new prompt templates`)
 			} else if (skippedCount > 0) {
