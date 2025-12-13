@@ -1,5 +1,4 @@
 import path from 'path'
-import { TraceRecorder } from './trace-recorder.mjs'
 
 /**
  * Docker Agent Executor
@@ -7,6 +6,9 @@ import { TraceRecorder } from './trace-recorder.mjs'
  *
  * This executor builds and executes an agent script inside the Docker container,
  * ensuring that all AI provider calls and logic run in an isolated environment.
+ *
+ * Traces are written directly by the VM to /project/.flow/traces/ to avoid
+ * JSON serialization limits when passing data back to the host.
  */
 export class DockerAgentExecutor {
 	constructor(agentConfig, dockerManager, options = {}) {
@@ -14,7 +16,6 @@ export class DockerAgentExecutor {
 		this.dockerManager = dockerManager
 		this.options = options
 		this.flowRunCount = options.flowRunCount || 1
-		this.traceRecorder = new TraceRecorder(options.tracesDir || './traces')
 		this.callbacks = options.callbacks || {}
 		this.messages = []
 		this.totalTokenUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
@@ -95,7 +96,19 @@ export class DockerAgentExecutor {
 			throw new Error(`Script execution failed. Stdout was not JSON (length: ${output.length})`)
 		}
 
-		const result = JSON.parse(output)
+		let result
+		try {
+			result = JSON.parse(output)
+		} catch (parseError) {
+			console.error(`[${this.agentConfig.name}] JSON parse error at position ${parseError.message.match(/position (\d+)/)?.[1] || '?'}`)
+			console.error(`Output length: ${output.length}`)
+			// Show context around the error position
+			const pos = parseInt(parseError.message.match(/position (\d+)/)?.[1] || '0')
+			if (pos > 0) {
+				console.error(`Context around error: ...${output.substring(Math.max(0, pos - 100), pos + 100)}...`)
+			}
+			throw parseError
+		}
 
 		// Add model to result for cost tracking
 		result.model = this.agentConfig.model
@@ -108,12 +121,8 @@ export class DockerAgentExecutor {
 			this.totalTokenUsage = result.tokenUsage
 		}
 
-		// Record traces from VM execution
-		if (result.turns) {
-			for (const turn of result.turns) {
-				await this._recordTraceFromVMTurn(turn)
-			}
-		}
+		// Traces are now written directly by the VM to /project/.flow/traces/
+		// No need for host-side trace recording
 
 		// Log file creations for user visibility
 		await this._logFileCreations(result)
@@ -169,6 +178,103 @@ async function resolveTemplatePlaceholders(content, templateDir, userIntent) {
 		}
 	}
 	return resolved
+}
+
+// Write trace file directly to disk (bypasses stdout JSON serialization limits)
+function writeTrace(agentName, flowRun, turn, data) {
+	const now = new Date()
+	const datePart = [
+		now.getFullYear(),
+		String(now.getMonth() + 1).padStart(2, '0'),
+		String(now.getDate()).padStart(2, '0')
+	].join('-')
+	const timePart = [
+		String(now.getHours()).padStart(2, '0'),
+		String(now.getMinutes()).padStart(2, '0'),
+		String(now.getSeconds()).padStart(2, '0')
+	].join('-')
+
+	const filename = '/project/.flow/traces/' + datePart + '_' + timePart + '_' + agentName + '_r' + flowRun + '-t' + turn + '.md'
+
+	const parts = []
+	parts.push('# ' + agentName + ' - Run ' + flowRun + ', Turn ' + turn)
+	parts.push('')
+	parts.push('**Timestamp**: ' + now.toLocaleString())
+	parts.push('**Model**: ' + data.model)
+	parts.push('**Flow Run**: ' + flowRun)
+	parts.push('**Agent Turn**: ' + turn + '/' + (data.maxTurns || '?'))
+	parts.push('')
+
+	// System prompt on first turn
+	if (data.systemPrompt) {
+		parts.push('## System Prompt')
+		parts.push('')
+		parts.push('\`\`\`markdown')
+		parts.push(data.systemPrompt)
+		parts.push('\`\`\`')
+		parts.push('')
+	}
+
+	// User input on first turn
+	if (data.userInput) {
+		parts.push('## User Input')
+		parts.push('')
+		parts.push('\`\`\`')
+		parts.push(data.userInput)
+		parts.push('\`\`\`')
+		parts.push('')
+	}
+
+	// Agent response
+	if (data.content) {
+		parts.push('## Agent Response')
+		parts.push('')
+		parts.push(data.content)
+		parts.push('')
+	}
+
+	// Tool calls
+	if (data.toolCalls && data.toolCalls.length > 0) {
+		parts.push('## Tool Calls')
+		parts.push('')
+		data.toolCalls.forEach((call, index) => {
+			parts.push('### ' + (index + 1) + '. ' + call.name)
+			parts.push('')
+			parts.push('**Arguments:**')
+			parts.push('\`\`\`json')
+			parts.push(JSON.stringify(call.arguments, null, 2))
+			parts.push('\`\`\`')
+			parts.push('')
+			if (call.result !== undefined) {
+				parts.push('**Result:**')
+				parts.push('\`\`\`json')
+				parts.push(JSON.stringify(call.result, null, 2))
+				parts.push('\`\`\`')
+				parts.push('')
+			}
+		})
+	}
+
+	// Token usage
+	if (data.tokenUsage) {
+		parts.push('## Token Usage & Cost')
+		parts.push('')
+		parts.push('- Prompt: ' + (data.tokenUsage.prompt_tokens || 0))
+		parts.push('- Completion: ' + (data.tokenUsage.completion_tokens || 0))
+		parts.push('- Total: ' + (data.tokenUsage.total_tokens || 0))
+		if (data.cost !== undefined) {
+			parts.push('- **Cost: $' + data.cost.toFixed(4) + '**')
+		}
+		if (data.contextPercent !== undefined) {
+			parts.push('- **Context Used: ' + data.contextPercent.toFixed(1) + '%**')
+		}
+		parts.push('')
+	}
+
+	parts.push('**Finish Reason**: ' + (data.finishReason || 'unknown'))
+	parts.push('')
+
+	writeFileSync(filename, parts.join('\\n'))
 }
 
 // Wrap everything in try-catch to ensure JSON output even on error
@@ -275,9 +381,14 @@ async function main() {
 				}
 
 				// Include inputs on first turn for debugging traces
+				// Limit size to prevent JSON serialization issues
 				if (turnCount === 1) {
-					turnResult.systemPrompt = systemPrompt
-					turnResult.userInput = userInput
+					turnResult.systemPrompt = systemPrompt.length > 50000
+						? systemPrompt.substring(0, 50000) + '\\n[TRUNCATED]'
+						: systemPrompt
+					turnResult.userInput = userInput.length > 10000
+						? userInput.substring(0, 10000) + '\\n[TRUNCATED]'
+						: userInput
 				}
 
 				// Format tool call for display
@@ -391,6 +502,13 @@ async function main() {
 				console.error('💰 Cost: $' + costData.total_cost.toFixed(4) + ' | Context: ' + contextPct.toFixed(1) + '%\\n')
 			}
 
+			// Write trace file directly (bypasses stdout JSON limits)
+			writeTrace(agentConfig.name, ${this.flowRunCount}, turnCount, {
+				...turnResult,
+				systemPrompt: turnCount === 1 ? systemPrompt : undefined,
+				userInput: turnCount === 1 ? userInput : undefined,
+			})
+
 			// Check if done
 				if (response.finishReason === 'stop' || response.finishReason === 'end_turn') {
 					results.success = true
@@ -409,8 +527,16 @@ async function main() {
 			}
 		}
 
-		// Store final messages for FlowRunner
-		results.messages = messages
+		// Slim down results for stdout (traces already written to disk)
+		// Remove large fields to avoid JSON serialization issues
+		delete results.messages
+		results.turns = results.turns.map(t => ({
+			turn: t.turn,
+			tokenUsage: t.tokenUsage,
+			cost: t.cost,
+			contextPercent: t.contextPercent,
+			finishReason: t.finishReason,
+		}))
 
 		// Output result as JSON to stdout
 		const jsonOutput = JSON.stringify(results)
@@ -457,18 +583,6 @@ main().catch(error => {
 
 		// Clean up temp file
 		await fs.unlink(tempFile)
-	}
-
-	/**
-	 * Record trace from VM turn data
-	 */
-	async _recordTraceFromVMTurn(turnData) {
-		await this.traceRecorder.recordTurn(
-			this.agentConfig.name,
-			this.flowRunCount,
-			turnData.turn,
-			turnData
-		)
 	}
 
 	/**

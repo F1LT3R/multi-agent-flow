@@ -238,12 +238,12 @@ program
 			const result = await runner.run(description)
 
 		// Display summary
-		console.log(chalk.blue.bold('\n' + '='.repeat(60)))
-		console.log(chalk.blue.bold('Flow Summary'))
-		console.log(chalk.blue.bold('='.repeat(60)))
-		console.log(`Status: ${result.success ? chalk.green('SUCCESS') : chalk.red('FAILED')}`)
-		console.log(`Flow Runs: ${result.flowRunCount}`)
-		console.log(`Agents Executed: ${result.results.length}`)
+		console.log(chalk.cyan.bold('\n╔' + '═'.repeat(58) + '╗'))
+		console.log(chalk.cyan.bold('║') + chalk.white.bold('  📊 Flow Summary') + ' '.repeat(40) + chalk.cyan.bold('║'))
+		console.log(chalk.cyan.bold('╚' + '═'.repeat(58) + '╝'))
+		console.log(`  ${result.success ? '✅' : '❌'} Status: ${result.success ? chalk.green.bold('SUCCESS') : chalk.red.bold('FAILED')}`)
+		console.log(`  🔄 Flow Runs: ${chalk.white.bold(result.flowRunCount)}`)
+		console.log(`  🤖 Agents Executed: ${chalk.white.bold(result.results.length)}`)
 
 		// Calculate detailed metrics by model
 		const { getCost } = await import('./data/model-pricing.mjs')
@@ -299,30 +299,29 @@ program
 
 		const totalCost = totalInputCost + totalOutputCost
 
-		console.log(`Total Turns: ${totalTurns}`)
-		console.log()
+		console.log(`  💬 Total Turns: ${chalk.white.bold(totalTurns)}`)
 
 		// Model breakdown
 		if (Object.keys(modelStats).length > 0) {
-			console.log(chalk.cyan('By Model:'))
+			console.log(chalk.yellow.bold('\n  📈 By Model:'))
 			for (const [model, stats] of Object.entries(modelStats)) {
 				const modelTotalCost = stats.inputCost + stats.outputCost
-				console.log(chalk.gray(`  ${model} (${stats.agents} agent${stats.agents > 1 ? 's' : ''}):`))
-				console.log(chalk.gray(`    Tokens: ${stats.promptTokens.toLocaleString()} in + ${stats.completionTokens.toLocaleString()} out = ${stats.totalTokens.toLocaleString()} total`))
-				console.log(chalk.gray(`    Cost: $${stats.inputCost.toFixed(4)} in + $${stats.outputCost.toFixed(4)} out = $${modelTotalCost.toFixed(4)} total`))
+				console.log(chalk.cyan(`    🔹 ${model}`) + chalk.gray(` (${stats.agents} agent${stats.agents > 1 ? 's' : ''})`))
+				console.log(chalk.gray(`       📥 Tokens: `) + chalk.white(`${stats.promptTokens.toLocaleString()} in + ${stats.completionTokens.toLocaleString()} out`))
+				console.log(chalk.gray(`       💰 Cost: `) + chalk.green(`$${modelTotalCost.toFixed(4)}`))
 				console.log()
 			}
 		}
 
-		console.log(chalk.bold(`Total: ${totalTokens.toLocaleString()} tokens, $${totalCost.toFixed(4)}`))
-		console.log(`Average per Agent: $${(totalCost / result.results.length).toFixed(4)}`)
+		console.log(chalk.gray('\n  ' + '─'.repeat(40)))
+		console.log(`  📊 ${chalk.white.bold('Total:')} ${chalk.cyan.bold(totalTokens.toLocaleString())} tokens, ${chalk.green.bold('$' + totalCost.toFixed(4))}`)
+		console.log(`  📉 ${chalk.gray('Average per Agent:')} ${chalk.green('$' + (totalCost / result.results.length).toFixed(4))}`)
 
 		if (!result.success) {
-			console.log()
-			console.log(`Failure Reason: ${result.reason}`)
+			console.log(chalk.red(`\n  ⚠️  Failure Reason: ${result.reason}`))
 		}
 
-		console.log(chalk.blue.bold('='.repeat(60) + '\n'))
+		console.log(chalk.cyan.bold('\n╚' + '═'.repeat(58) + '╝\n'))
 
 		} catch (error) {
 			console.error(chalk.red('\n❌ Flow failed:'), error.message)
@@ -433,7 +432,7 @@ program
 	.action(async () => {
 		try {
 			const { resolveTemplatePlaceholders } = await import('./core/template-resolver.mjs')
-			
+
 			// Load configuration
 			const configLoader = new ConfigLoader()
 			await configLoader.load()
@@ -443,7 +442,7 @@ program
 				// Load prompt file
 				const promptFile = agent.prompt_file.split('/').pop()
 				const promptPath = path.join('.flow/prompts', promptFile)
-				
+
 				let prompt
 				try {
 					prompt = await fs.readFile(promptPath, 'utf-8')
@@ -455,7 +454,7 @@ program
 
 				// Output markdown for each agent
 				console.log(`# ${agent.name}\n`)
-				
+
 				console.log(`## Settings\n`)
 				console.log(`| Setting | Value |`)
 				console.log(`|---------|-------|`)

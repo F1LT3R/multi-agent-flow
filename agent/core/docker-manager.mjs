@@ -1,5 +1,5 @@
 import Docker from 'dockerode'
-import { exec } from 'child_process'
+import { exec, spawn } from 'child_process'
 import { promisify } from 'util'
 import { Writable } from 'stream'
 import path from 'path'
@@ -24,7 +24,7 @@ export class DockerManager {
 	}
 
 	/**
-	 * Build the Docker image
+	 * Build the Docker image with streaming progress output
 	 */
 	async buildImage() {
 		console.log('[Docker] Building agent image...')
@@ -41,18 +41,43 @@ export class DockerManager {
 		console.log(`[Docker] Building from context: ${buildContext}`)
 		console.log(`[Docker] Using Dockerfile: ${dockerfilePath}`)
 
-		try {
-			const { stdout, stderr } = await execAsync(
-				`docker build --build-arg UID=${uid} --build-arg GID=${gid} -f ${dockerfilePath} -t ${this.imageName} ${buildContext}`,
-				{ maxBuffer: 10 * 1024 * 1024 }
-			)
+		return new Promise((resolve, reject) => {
+			const proc = spawn('docker', [
+				'build',
+				'--build-arg', `UID=${uid}`,
+				'--build-arg', `GID=${gid}`,
+				'-f', dockerfilePath,
+				'-t', this.imageName,
+				buildContext
+			], { stdio: ['ignore', 'pipe', 'pipe'] })
 
-			console.log('[Docker] Image built successfully')
-			return true
-		} catch (error) {
-			console.error('[Docker] Failed to build image:', error.message)
-			throw error
-		}
+			proc.stdout.on('data', (data) => {
+				const lines = data.toString().split('\n').filter(l => l.trim())
+				for (const line of lines) {
+					console.log(`[Docker] ${line}`)
+				}
+			})
+
+			proc.stderr.on('data', (data) => {
+				const lines = data.toString().split('\n').filter(l => l.trim())
+				for (const line of lines) {
+					console.log(`[Docker] ${line}`)
+				}
+			})
+
+			proc.on('close', (code) => {
+				if (code === 0) {
+					console.log('[Docker] Image built successfully')
+					resolve(true)
+				} else {
+					reject(new Error(`Docker build failed with exit code ${code}`))
+				}
+			})
+
+			proc.on('error', (err) => {
+				reject(new Error(`Docker build failed: ${err.message}`))
+			})
+		})
 	}
 
 	/**

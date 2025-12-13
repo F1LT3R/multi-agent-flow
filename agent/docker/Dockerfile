@@ -41,7 +41,7 @@ COPY vm-tools/ /workspace/agent/vm-tools/
 # Create package.json and install dependencies locally
 RUN cd /workspace/agent && \
     echo '{"type":"module"}' > package.json && \
-    npm install @modelcontextprotocol/sdk openai @anthropic-ai/sdk @google/generative-ai marked marked-terminal chalk puppeteer && \
+    npm install @modelcontextprotocol/sdk openai @anthropic-ai/sdk @google/generative-ai marked marked-terminal chalk puppeteer minimatch && \
     chown -R agent:agent /workspace/agent
 
 # Copy keep-alive script
