@@ -7,6 +7,8 @@
 // - .flow/ratchet/       - Blessed artifacts (stories, reports, tests)
 
 export default {
+	default_flow: 'development',
+
 	persistence: {
 		checkpoint_interval: 'every_turn',
 	},
@@ -27,13 +29,26 @@ export default {
 
 	flows: {
 		development: {
-            description: "Develop features with tests."
+			description: 'Develop features with tests.',
+			aliases: ['dev'],
 			max_flow_runs: 3,
 			ask_before_reflow: true,
 			agents: [
 				'WRITE_USER_STORIES',
 				'GENERATE_CODE',
 				'PLAN_TESTS',
+				'GENERATE_TESTS',
+				'REVIEW',
+				'CLEAN_AND_REFACTOR',
+				'REPORT',
+			],
+		},
+		testing: {
+			description: 'Write and fix tests only (no new code).',
+			aliases: ['test'],
+			max_flow_runs: 2,
+			ask_before_reflow: true,
+			agents: [
 				'GENERATE_TESTS',
 				'REVIEW',
 				'CLEAN_AND_REFACTOR',

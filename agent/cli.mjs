@@ -21,6 +21,228 @@ program
 	.version('0.1.0')
 
 /**
+ * Execute a flow by name
+ * Shared implementation for all dynamic flow commands
+ */
+async function runFlow(flowName, description, options) {
+	// Set non-interactive mode
+	if (options.yes || options.autoApprove) {
+		process.env.AUTO_APPROVE = 'true'
+	}
+
+	console.log(chalk.blue.bold(`🤖 Starting Multi-Agent Flow: ${flowName}\n`))
+
+	try {
+		// Check Docker - REQUIRED for safety
+		const spinner = ora('Checking Docker...').start()
+		try {
+			const { exec } = await import('child_process')
+			const { promisify } = await import('util')
+			const execAsync = promisify(exec)
+			await execAsync('docker info')
+			spinner.succeed('Docker is running')
+		} catch (error) {
+			spinner.fail('Docker is not available')
+			console.error(chalk.red('\n❌ ERROR: Docker is required for safe agent execution\n'))
+			console.error(chalk.yellow('Why Docker is required:'))
+			console.error(chalk.gray('  - Agents run arbitrary code and can modify your system'))
+			console.error(chalk.gray('  - Docker isolation prevents system damage'))
+			console.error(chalk.gray('  - Running without Docker can brick your computer\n'))
+			console.error(chalk.cyan('To fix this:'))
+			console.error(chalk.gray('  1. Install Docker Desktop: https://www.docker.com/products/docker-desktop'))
+			console.error(chalk.gray('  2. Start Docker'))
+			console.error(chalk.gray('  3. Run this command again\n'))
+			process.exit(1)
+		}
+
+		// Load configuration
+		const configLoader = new ConfigLoader()
+		await configLoader.load()
+		const config = configLoader.getConfig()
+
+		// Validate flow exists
+		if (!config.flows || !config.flows[flowName]) {
+			const available = Object.keys(config.flows || {}).join(', ')
+			console.error(chalk.red(`\n❌ Unknown flow '${flowName}'. Available: ${available}\n`))
+			process.exit(1)
+		}
+
+		// Tools run directly inside Docker VM - no HTTP servers needed!
+		console.log(chalk.cyan('Tools will run inside Docker VM...\n'))
+
+		// Run the flow
+		const runner = new FlowRunner(config, flowName)
+		const result = await runner.run(description)
+
+		// Calculate detailed metrics by model
+		const { getCost } = await import('./data/model-pricing.mjs')
+		const pricingOverrides = config.pricing?.overrides || {}
+		const modelStats = {}
+		let totalTurns = 0
+		let totalPromptTokens = 0
+		let totalCompletionTokens = 0
+		let totalTokens = 0
+		let totalInputCost = 0
+		let totalOutputCost = 0
+
+		for (const agentResult of result.results) {
+			if (agentResult.tokenUsage) {
+				const model = agentResult.model || 'unknown'
+				const promptTokens = agentResult.tokenUsage.prompt_tokens || 0
+				const completionTokens = agentResult.tokenUsage.completion_tokens || 0
+				const tokens = agentResult.tokenUsage.total_tokens || 0
+				const turns = agentResult.turns?.length || 0
+
+				// Calculate cost
+				const costData = getCost(model, promptTokens, completionTokens, pricingOverrides)
+
+				// Aggregate totals
+				totalTurns += turns
+				totalPromptTokens += promptTokens
+				totalCompletionTokens += completionTokens
+				totalTokens += tokens
+				totalInputCost += costData.input_cost
+				totalOutputCost += costData.output_cost
+
+				// Aggregate by model
+				if (!modelStats[model]) {
+					modelStats[model] = {
+						agents: 0,
+						turns: 0,
+						promptTokens: 0,
+						completionTokens: 0,
+						totalTokens: 0,
+						inputCost: 0,
+						outputCost: 0,
+					}
+				}
+				modelStats[model].agents++
+				modelStats[model].turns += turns
+				modelStats[model].promptTokens += promptTokens
+				modelStats[model].completionTokens += completionTokens
+				modelStats[model].totalTokens += tokens
+				modelStats[model].inputCost += costData.input_cost
+				modelStats[model].outputCost += costData.output_cost
+			}
+		}
+
+		const totalCost = totalInputCost + totalOutputCost
+
+		// Helper to strip ANSI codes for width calculation
+		const stripAnsi = (str) => str.replace(/\x1b\[[0-9;]*m/g, '')
+
+		// Helper to calculate visual width (emojis count as 2)
+		const visualWidth = (str) => {
+			const plain = stripAnsi(str)
+			let width = 0
+			for (const char of plain) {
+				// Emoji and wide characters take 2 spaces
+				const code = char.codePointAt(0)
+				if (code > 0x1F000 || (code >= 0x2600 && code <= 0x27BF)) {
+					width += 2
+				} else {
+					width += 1
+				}
+			}
+			return width
+		}
+
+		// Build all summary lines
+		const boxWidth = 58
+		const lines = []
+
+		lines.push(chalk.white.bold('  📊 Flow Summary'))
+		lines.push('')
+		lines.push(`  ${result.success ? '✅' : '❌'} Status: ${result.success ? chalk.green.bold('SUCCESS') : chalk.red.bold('FAILED')}`)
+		lines.push(`  🔄 Flow Runs: ${chalk.white.bold(result.flowRunCount)}`)
+		lines.push(`  🤖 Agents Executed: ${chalk.white.bold(result.results.length)}`)
+		lines.push(`  💬 Total Turns: ${chalk.white.bold(totalTurns)}`)
+
+		// Model breakdown
+		if (Object.keys(modelStats).length > 0) {
+			lines.push('')
+			lines.push(chalk.yellow.bold('  📈 By Model:'))
+			for (const [model, stats] of Object.entries(modelStats)) {
+				const modelTotalCost = stats.inputCost + stats.outputCost
+				lines.push(chalk.cyan(`    ◆ ${model}`) + chalk.white(` (${stats.agents} agent${stats.agents > 1 ? 's' : ''})`))
+				lines.push(chalk.cyan(`       📥 Tokens: `) + chalk.white(`${stats.promptTokens.toLocaleString()} in + ${stats.completionTokens.toLocaleString()} out`))
+				lines.push(chalk.cyan(`       💰 Cost: `) + chalk.green(`$${modelTotalCost.toFixed(4)}`))
+				lines.push('')
+			}
+		}
+
+		lines.push(chalk.cyan('  ' + '─'.repeat(40)))
+		lines.push(`  📊 ${chalk.white.bold('Total:')} ${chalk.cyan.bold(totalTokens.toLocaleString())} tokens, ${chalk.green.bold('$' + totalCost.toFixed(4))}`)
+		lines.push(`  📉 ${chalk.white('Average per Agent:')} ${chalk.green('$' + (totalCost / result.results.length).toFixed(4))}`)
+
+		if (!result.success) {
+			lines.push('')
+			lines.push(chalk.red(`  ⚠️  Failure Reason: ${result.reason}`))
+		}
+
+		// Display summary in a single box
+		console.log(chalk.cyan.bold('\n╔' + '═'.repeat(boxWidth) + '╗'))
+		for (const line of lines) {
+			const padding = boxWidth - visualWidth(line)
+			console.log(chalk.cyan.bold('║') + line + ' '.repeat(Math.max(0, padding)) + chalk.cyan.bold('║'))
+		}
+		console.log(chalk.cyan.bold('╚' + '═'.repeat(boxWidth) + '╝\n'))
+
+	} catch (error) {
+		console.error(chalk.red('\n❌ Flow failed:'), error.message)
+		console.error(error.stack)
+		process.exit(1)
+	}
+}
+
+/**
+ * Dynamically register CLI commands for each flow in config
+ */
+async function registerFlowCommands() {
+	let config
+
+	try {
+		const configLoader = new ConfigLoader()
+		await configLoader.load()
+		config = configLoader.getConfig()
+	} catch {
+		// Fallback for uninitialized projects - show default commands
+		config = {
+			flows: {
+				development: {
+					description: 'Develop features with tests.',
+					aliases: ['dev'],
+				},
+				testing: {
+					description: 'Write and fix tests only (no new code).',
+					aliases: ['test'],
+				},
+			},
+		}
+	}
+
+	// Register each flow as a command
+	for (const [flowName, flowConfig] of Object.entries(config.flows || {})) {
+		const cmd = program
+			.command(flowName)
+			.description(flowConfig.description || `Run the ${flowName} flow`)
+			.argument('<description>', 'What to build or fix')
+			.option('-y, --yes', 'Auto-approve all prompts (non-interactive)')
+			.option('--auto-approve', 'Alias for --yes')
+			.action(async (description, options) => {
+				await runFlow(flowName, description, options)
+			})
+
+		// Register aliases (e.g., 'dev' for 'development')
+		if (flowConfig.aliases && Array.isArray(flowConfig.aliases)) {
+			for (const alias of flowConfig.aliases) {
+				cmd.alias(alias)
+			}
+		}
+	}
+}
+
+/**
  * Init command - Initialize project
  */
 program
@@ -168,186 +390,9 @@ program
 		console.log('  2. Ensure Docker is running (for agent isolation)')
 		console.log('  3. Review .flow/flow.config.mjs')
 		console.log('  4. Customize prompts in .flow/prompts/ (optional)')
-		console.log('  5. Run: flow run "your feature description"\n')
+		console.log('  5. Run: flow dev "your feature description"\n')
 		} catch (error) {
 			console.error(chalk.red('❌ Initialization failed:'), error.message)
-			process.exit(1)
-		}
-	})
-
-/**
- * Run command - Execute full agent flow
- */
-program
-	.command('run')
-	.description('Run the full agent flow')
-	.argument('<description>', 'Feature description')
-	.option('-f, --flow <name>', 'Flow to run', 'development')
-	.option('-s, --sequence <name>', '[Deprecated] Use --flow instead')
-	.option('-y, --yes', 'Auto-approve all prompts (non-interactive mode)')
-	.option('--auto-approve', 'Alias for --yes')
-	.action(async (description, options) => {
-		// Set non-interactive mode
-		if (options.yes || options.autoApprove) {
-			process.env.AUTO_APPROVE = 'true'
-		}
-
-		console.log(chalk.blue.bold('🤖 Starting Multi-Agent Flow\n'))
-
-		try {
-			// Check Docker - REQUIRED for safety
-			const spinner = ora('Checking Docker...').start()
-			try {
-				const { exec } = await import('child_process')
-				const { promisify } = await import('util')
-				const execAsync = promisify(exec)
-				await execAsync('docker info')
-				spinner.succeed('Docker is running')
-			} catch (error) {
-				spinner.fail('Docker is not available')
-				console.error(chalk.red('\n❌ ERROR: Docker is required for safe agent execution\n'))
-				console.error(chalk.yellow('Why Docker is required:'))
-				console.error(chalk.gray('  - Agents run arbitrary code and can modify your system'))
-				console.error(chalk.gray('  - Docker isolation prevents system damage'))
-				console.error(chalk.gray('  - Running without Docker can brick your computer\n'))
-				console.error(chalk.cyan('To fix this:'))
-				console.error(chalk.gray('  1. Install Docker Desktop: https://www.docker.com/products/docker-desktop'))
-				console.error(chalk.gray('  2. Start Docker'))
-				console.error(chalk.gray('  3. Run this command again\n'))
-				process.exit(1)
-			}
-
-			// Load configuration
-			const configLoader = new ConfigLoader()
-			await configLoader.load()
-			const config = configLoader.getConfig()
-
-			// Tools run directly inside Docker VM - no HTTP servers needed!
-			console.log(chalk.cyan('Tools will run inside Docker VM...\n'))
-
-			// Run the flow
-			// Support both --flow and deprecated --sequence
-		const flowName = options.flow || options.sequence || 'development'
-		const runner = new FlowRunner(config, flowName)
-			const result = await runner.run(description)
-
-		// Calculate detailed metrics by model
-		const { getCost } = await import('./data/model-pricing.mjs')
-		const pricingOverrides = config.pricing?.overrides || {}
-		const modelStats = {}
-		let totalTurns = 0
-		let totalPromptTokens = 0
-		let totalCompletionTokens = 0
-		let totalTokens = 0
-		let totalInputCost = 0
-		let totalOutputCost = 0
-
-		for (const agentResult of result.results) {
-			if (agentResult.tokenUsage) {
-				const model = agentResult.model || 'unknown'
-				const promptTokens = agentResult.tokenUsage.prompt_tokens || 0
-				const completionTokens = agentResult.tokenUsage.completion_tokens || 0
-				const tokens = agentResult.tokenUsage.total_tokens || 0
-				const turns = agentResult.turns?.length || 0
-
-				// Calculate cost
-				const costData = getCost(model, promptTokens, completionTokens, pricingOverrides)
-
-				// Aggregate totals
-				totalTurns += turns
-				totalPromptTokens += promptTokens
-				totalCompletionTokens += completionTokens
-				totalTokens += tokens
-				totalInputCost += costData.input_cost
-				totalOutputCost += costData.output_cost
-
-				// Aggregate by model
-				if (!modelStats[model]) {
-					modelStats[model] = {
-						agents: 0,
-						turns: 0,
-						promptTokens: 0,
-						completionTokens: 0,
-						totalTokens: 0,
-						inputCost: 0,
-						outputCost: 0,
-					}
-				}
-				modelStats[model].agents++
-				modelStats[model].turns += turns
-				modelStats[model].promptTokens += promptTokens
-				modelStats[model].completionTokens += completionTokens
-				modelStats[model].totalTokens += tokens
-				modelStats[model].inputCost += costData.input_cost
-				modelStats[model].outputCost += costData.output_cost
-			}
-		}
-
-		const totalCost = totalInputCost + totalOutputCost
-
-		// Helper to strip ANSI codes for width calculation
-		const stripAnsi = (str) => str.replace(/\x1b\[[0-9;]*m/g, '')
-
-		// Helper to calculate visual width (emojis count as 2)
-		const visualWidth = (str) => {
-			const plain = stripAnsi(str)
-			let width = 0
-			for (const char of plain) {
-				// Emoji and wide characters take 2 spaces
-				const code = char.codePointAt(0)
-				if (code > 0x1F000 || (code >= 0x2600 && code <= 0x27BF)) {
-					width += 2
-				} else {
-					width += 1
-				}
-			}
-			return width
-		}
-
-		// Build all summary lines
-		const boxWidth = 58
-		const lines = []
-
-		lines.push(chalk.white.bold('  📊 Flow Summary'))
-		lines.push('')
-		lines.push(`  ${result.success ? '✅' : '❌'} Status: ${result.success ? chalk.green.bold('SUCCESS') : chalk.red.bold('FAILED')}`)
-		lines.push(`  🔄 Flow Runs: ${chalk.white.bold(result.flowRunCount)}`)
-		lines.push(`  🤖 Agents Executed: ${chalk.white.bold(result.results.length)}`)
-		lines.push(`  💬 Total Turns: ${chalk.white.bold(totalTurns)}`)
-
-		// Model breakdown
-		if (Object.keys(modelStats).length > 0) {
-			lines.push('')
-			lines.push(chalk.yellow.bold('  📈 By Model:'))
-			for (const [model, stats] of Object.entries(modelStats)) {
-				const modelTotalCost = stats.inputCost + stats.outputCost
-				lines.push(chalk.cyan(`    ◆ ${model}`) + chalk.white(` (${stats.agents} agent${stats.agents > 1 ? 's' : ''})`))
-				lines.push(chalk.cyan(`       📥 Tokens: `) + chalk.white(`${stats.promptTokens.toLocaleString()} in + ${stats.completionTokens.toLocaleString()} out`))
-				lines.push(chalk.cyan(`       💰 Cost: `) + chalk.green(`$${modelTotalCost.toFixed(4)}`))
-				lines.push('')
-			}
-		}
-
-		lines.push(chalk.cyan('  ' + '─'.repeat(40)))
-		lines.push(`  📊 ${chalk.white.bold('Total:')} ${chalk.cyan.bold(totalTokens.toLocaleString())} tokens, ${chalk.green.bold('$' + totalCost.toFixed(4))}`)
-		lines.push(`  📉 ${chalk.white('Average per Agent:')} ${chalk.green('$' + (totalCost / result.results.length).toFixed(4))}`)
-
-		if (!result.success) {
-			lines.push('')
-			lines.push(chalk.red(`  ⚠️  Failure Reason: ${result.reason}`))
-		}
-
-		// Display summary in a single box
-		console.log(chalk.cyan.bold('\n╔' + '═'.repeat(boxWidth) + '╗'))
-		for (const line of lines) {
-			const padding = boxWidth - visualWidth(line)
-			console.log(chalk.cyan.bold('║') + line + ' '.repeat(Math.max(0, padding)) + chalk.cyan.bold('║'))
-		}
-		console.log(chalk.cyan.bold('╚' + '═'.repeat(boxWidth) + '╝\n'))
-
-		} catch (error) {
-			console.error(chalk.red('\n❌ Flow failed:'), error.message)
-			console.error(error.stack)
 			process.exit(1)
 		}
 	})
@@ -387,7 +432,8 @@ program
 
 			// Resume the flow
 			const state = await checkpointManager.load(runId)
-			const runner = new FlowRunner(config, state.flowName || state.sequenceName || 'development')
+			const defaultFlow = config.default_flow || 'development'
+			const runner = new FlowRunner(config, state.flowName || state.sequenceName || defaultFlow)
 			const result = await runner.run(state.userInput, runId)
 
 			console.log(chalk.green.bold('\n✅ Flow resumed and completed!'))
@@ -426,11 +472,12 @@ program
 			console.log(chalk.cyan('Tools will run inside Docker VM...\n'))
 
 			// Run the agent via FlowRunner (which uses DockerAgentExecutor)
-			const runner = new FlowRunner(config, 'development')
+			const defaultFlow = config.default_flow || 'development'
+			const runner = new FlowRunner(config, defaultFlow)
 
 			// For single agent mode, we run just this one agent
 			console.log(chalk.yellow('Single agent mode - using flow runner for Docker execution'))
-			console.log(chalk.gray('For full debugging, use: flow run "description"\n'))
+			console.log(chalk.gray('For full debugging, use: flow dev "description"\n'))
 
 			// Display info
 			console.log(chalk.blue.bold('Agent Configuration:'))
@@ -595,6 +642,17 @@ program
 		}
 	})
 
-// Parse arguments
-program.parse()
+/**
+ * Main entry point
+ * Registers dynamic flow commands before parsing
+ */
+async function main() {
+	await registerFlowCommands()
+	program.parse()
+}
+
+main().catch((err) => {
+	console.error(chalk.red('Fatal error:'), err.message)
+	process.exit(1)
+})
 
