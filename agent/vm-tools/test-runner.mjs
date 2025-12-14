@@ -12,6 +12,9 @@ const execAsync = promisify(exec)
 // Project root inside the VM
 const PROJECT_ROOT = '/project'
 
+// Strip ANSI escape codes from string (for plain text output to agents)
+const stripAnsi = (str) => str.replace(/\x1b\[[0-9;]*m/g, '')
+
 /**
  * Find test files matching a pattern
  * Excludes .flow/ and node_modules/ directories
@@ -114,8 +117,9 @@ export async function run_node_tests({ pattern, test_file } = {}) {
 			testTarget = allTests.join(' ')
 		}
 
+		// Use dual reporters: colored spec to stderr (for humans), spec to stdout (stripped for agents)
 		const { stdout, stderr } = await execAsync(
-			`cd "${PROJECT_ROOT}" && node --test ${testTarget}`,
+			`cd "${PROJECT_ROOT}" && node --test --test-reporter=spec --test-reporter-destination=stderr --test-reporter=spec --test-reporter-destination=stdout ${testTarget}`,
 			{
 				maxBuffer: 10 * 1024 * 1024,
 				env: { ...process.env, FORCE_COLOR: '1' }
@@ -124,14 +128,14 @@ export async function run_node_tests({ pattern, test_file } = {}) {
 
 		return {
 			success: true,
-			stdout,
-			stderr,
+			stdout: stripAnsi(stdout),  // Plain text for agent
+			stderr,                      // Colored for human (streamed to console)
 		}
 	} catch (error) {
 		return {
 			success: false,
-			stdout: error.stdout || '',
-			stderr: error.stderr || '',
+			stdout: stripAnsi(error.stdout || ''),  // Plain text for agent
+			stderr: error.stderr || '',              // Colored for human
 			error: error.message,
 		}
 	}

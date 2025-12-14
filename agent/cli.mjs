@@ -611,6 +611,80 @@ program
 	})
 
 /**
+ * Ratchet command - Manage ratcheted artifacts
+ */
+const ratchetCmd = program
+	.command('ratchet')
+	.description('Manage ratcheted artifacts')
+
+ratchetCmd
+	.command('tests')
+	.description('Ratchet changed tests (requires tests to pass)')
+	.option('--dry-run', 'Show what would be ratcheted without doing it')
+	.option('--force', 'Ratchet even if tests fail')
+	.action(async (options) => {
+		const { Ratchet } = await import('./core/ratchet.mjs')
+
+		console.log(chalk.blue.bold('🔒 Ratchet Tests\n'))
+
+		try {
+			const ratchet = new Ratchet(process.cwd())
+
+			// Step 1: Find changed tests
+			const spinner = ora('Finding changed tests...').start()
+			const changed = await ratchet.findChangedTests()
+
+			if (changed.length === 0) {
+				spinner.succeed('No test changes to ratchet')
+				return
+			}
+
+			spinner.succeed(`Found ${changed.length} changed test(s)`)
+
+			// Display what will be ratcheted
+			console.log('')
+			for (const { relativePath, isNew } of changed) {
+				const tag = isNew ? chalk.green('[new]') : chalk.yellow('[mod]')
+				console.log(`  ${tag} ${relativePath}`)
+			}
+			console.log('')
+
+			// Dry run - stop here
+			if (options.dryRun) {
+				console.log(chalk.yellow('Dry run - no changes made'))
+				return
+			}
+
+			// Step 2: Run tests (unless --force)
+			if (!options.force) {
+				const testSpinner = ora('Running tests...').start()
+				const testResult = await ratchet.runTests()
+
+				if (!testResult.success) {
+					testSpinner.fail('Tests failed - not ratcheting')
+					console.log(chalk.red('\nTest output:'))
+					console.log(chalk.gray(testResult.output || testResult.error))
+					process.exit(1)
+				}
+
+				testSpinner.succeed('Tests passed')
+			} else {
+				console.log(chalk.yellow('⚠️  Skipping tests (--force)'))
+			}
+
+			// Step 3: Ratchet the changed tests
+			const ratchetSpinner = ora('Ratcheting tests...').start()
+			const operations = await ratchet.ratchetChangedTests(changed)
+			ratchetSpinner.succeed(`Ratcheted ${operations.length} test(s)`)
+
+			console.log(chalk.green.bold(`\n✅ Done. ${operations.length} tests ratcheted.\n`))
+		} catch (error) {
+			console.error(chalk.red('\n❌ Ratchet failed:'), error.message)
+			process.exit(1)
+		}
+	})
+
+/**
  * Cleanup command - Kill stuck MCP servers
  */
 program

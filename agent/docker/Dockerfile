@@ -1,5 +1,5 @@
 # Multi-Agent Flow Agent Container
-FROM node:20-slim
+FROM node:22-slim
 
 # Accept UID/GID as build arguments
 ARG UID=1000

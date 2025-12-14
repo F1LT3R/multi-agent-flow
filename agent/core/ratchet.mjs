@@ -441,4 +441,103 @@ export class Ratchet {
 	async getStories() {
 		return this._readStories()
 	}
+
+	/**
+	 * Find test files that differ from their ratcheted versions
+	 * Used by manual `flow ratchet tests` command
+	 * @returns {Promise<Array<{file: string, relativePath: string, isNew: boolean}>>}
+	 */
+	async findChangedTests() {
+		const projectTests = await this._getFiles(this.projectRoot, '.test.mjs', ['.flow', 'node_modules'])
+		const changed = []
+
+		for (const file of projectTests) {
+			// Skip .new.test. files - those are handled separately
+			if (file.includes('.new.test.')) {
+				continue
+			}
+
+			const relativePath = path.relative(this.projectRoot, file)
+			const ratchetPath = path.join(this.testsRatchet, relativePath)
+
+			const projectContent = await fs.readFile(file, 'utf-8')
+			let ratchetContent = null
+			try {
+				ratchetContent = await fs.readFile(ratchetPath, 'utf-8')
+			} catch {
+				// File doesn't exist in ratchet - it's new
+			}
+
+			if (projectContent !== ratchetContent) {
+				changed.push({ file, relativePath, isNew: ratchetContent === null })
+			}
+		}
+
+		return changed
+	}
+
+	/**
+	 * Run tests in project directory
+	 * @returns {Promise<{success: boolean, output?: string, error?: string}>}
+	 */
+	async runTests() {
+		const { exec } = await import('child_process')
+		const { promisify } = await import('util')
+		const execAsync = promisify(exec)
+
+		try {
+			const { stdout, stderr } = await execAsync('node --test --test-reporter=spec *.test.mjs', {
+				cwd: this.projectRoot,
+				timeout: 60000, // 60 second timeout
+			})
+			return { success: true, output: stdout + stderr }
+		} catch (error) {
+			return {
+				success: false,
+				error: error.message,
+				output: error.stdout + error.stderr,
+			}
+		}
+	}
+
+	/**
+	 * Ratchet only the specified changed test files
+	 * @param {Array<{file: string, relativePath: string}>} files - Files to ratchet
+	 * @returns {Promise<Array<{type: string, source: string, destination: string}>>}
+	 */
+	async ratchetChangedTests(files) {
+		const operations = []
+
+		// Ensure ratchet tests directory exists
+		await fs.mkdir(this.testsRatchet, { recursive: true })
+
+		for (const { file, relativePath } of files) {
+			const destPath = path.join(this.testsRatchet, relativePath)
+
+			try {
+				// Create directory if needed
+				await fs.mkdir(path.dirname(destPath), { recursive: true })
+
+				// Make source writable first (in case it was read-only)
+				try {
+					await fs.chmod(file, 0o644)
+				} catch {
+					// Ignore chmod errors
+				}
+
+				// Copy to ratchet
+				await fs.copyFile(file, destPath)
+
+				operations.push({
+					type: 'ratchet',
+					source: relativePath,
+					destination: path.relative(this.projectRoot, destPath),
+				})
+			} catch (error) {
+				throw new Error(`Failed to ratchet ${relativePath}: ${error.message}`)
+			}
+		}
+
+		return operations
+	}
 }
