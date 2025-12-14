@@ -2,8 +2,8 @@
 
 ## ✅ 1. Fixed Directory Nesting
 
-**Problem**: Files created at `./project/project/calculator.js`  
-**Solution**: MCP server now uses `process.cwd()` instead of `config.paths.project`  
+**Problem**: Files created at `./project/project/calculator.js`
+**Solution**: MCP server now uses `process.cwd()` instead of `config.paths.project`
 **Result**: Clean structure `./project/calculator.js` ✓
 
 ## ✅ 2. Ratcheting Explanation
@@ -15,7 +15,7 @@
 
 **To verify ratcheting**:
 ```bash
-agent-flow run "Build a hello world function" --yes
+flow dev "Build a hello world function" --yes
 # If REVIEW approves, you'll see:
 # "Ratcheting tests to permanent storage..."
 # And ./tests/ will be populated
@@ -26,9 +26,9 @@ agent-flow run "Build a hello world function" --yes
 **New CLI Flags**:
 ```bash
 # Auto-approve all prompts
-agent-flow run "..." --yes
+flow dev "..." --yes
 # or
-agent-flow run "..." --auto-approve
+flow dev "..." --auto-approve
 ```
 
 **How it works**:
@@ -39,7 +39,7 @@ agent-flow run "..." --auto-approve
 **Example**:
 ```bash
 cd test-agent-flow
-agent-flow run "Create a fibonacci function" --yes
+flow dev "Create a fibonacci function" --yes
 # No prompts, runs to completion automatically
 ```
 
@@ -59,19 +59,19 @@ agent-flow run "Create a fibonacci function" --yes
 ```bash
 cd test-agent-flow
 rm -rf project/*  # Clean slate
-agent-flow run "Create calculator.js with add function" --yes
+flow dev "Create calculator.js with add function" --yes
 ls project/  # Should show calculator.js (not project/)
 ```
 
 ### Test 2: Non-Interactive
 ```bash
-agent-flow run "Build a simple todo app" --yes
+flow dev "Build a simple todo app" --yes
 # Should run to completion without asking questions
 ```
 
 ### Test 3: Ratcheting
 ```bash
-agent-flow run "Build hello.js with tests" --yes
+flow dev "Build hello.js with tests" --yes
 # If successful, check:
 ls tests/  # Should contain ratcheted test files
 ```

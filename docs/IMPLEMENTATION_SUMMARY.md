@@ -159,7 +159,7 @@ agent-flow init
 echo "OPENAI_API_KEY=sk-..." > .env
 
 # Run a flow
-agent-flow run "Build a calculator CLI"
+flow dev "Build a calculator CLI"
 
 # Results:
 # - ./plans/USER_STORIES_*.md (requirements)

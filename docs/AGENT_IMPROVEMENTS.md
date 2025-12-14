@@ -1,6 +1,6 @@
 # Agent Improvements - Post Test-027 Analysis
 
-**Date**: 2025-11-28  
+**Date**: 2025-11-28
 **Status**: ✅ Improvements Implemented
 
 ## Issues Identified from Test-027
@@ -126,7 +126,7 @@ Run a new test to verify improvements:
 ```bash
 cd ~/repos/test-agent-flow/test-028
 flow init
-flow run "Create a calculator with multiply and divide functions."
+flow dev "Create a calculator with multiply and divide functions."
 ```
 
 Expected improvements:

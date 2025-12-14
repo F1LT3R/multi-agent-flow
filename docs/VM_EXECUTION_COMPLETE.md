@@ -141,7 +141,7 @@ Added compatibility methods:
 Before deploying to production:
 
 - [ ] Run `npm test` to verify VM isolation tests pass
-- [ ] Test with simple task: `flow run "Build a calculator"`
+- [ ] Test with simple task: `flow dev "Build a calculator"`
 - [ ] Verify container starts and stays running
 - [ ] Check traces are recorded in `./traces/`
 - [ ] Verify agents can read from `../plans/`
@@ -173,10 +173,10 @@ Before deploying to production:
 ## Maintenance
 
 ### To Update Agent Code
-When modifying `ai-providers/` or `core/` modules:
+When modifying `ai-providers/`, `core/`, `data/`, or `vm-tools/` modules:
 1. Changes are automatically picked up on next Docker image rebuild
 2. Docker image rebuilds when not found
-3. Force rebuild: `docker rmi multi-flow-agent`
+3. Force rebuild: `docker rmi multi-agent-flow-agent`
 
 ### To Debug VM Execution
 View container logs:

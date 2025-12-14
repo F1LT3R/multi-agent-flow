@@ -47,7 +47,7 @@ Added a keep-alive mechanism to prevent the script from exiting:
 listTools()
     .then((tools) => {
         console.log('[Docker MCP Client] Ready to receive commands.')
-        
+
         // Keep the process alive indefinitely
         // The container will be stopped explicitly by the orchestrator
         setInterval(() => {
@@ -97,18 +97,24 @@ The container now:
 
 ## Rebuilding the Image
 
-After making changes to `agent/docker/mcp-client.mjs`, rebuild:
+After making changes to agent code, rebuild:
 
 ```bash
 cd /Users/user/repos/multi-agent-flow
-docker build --build-arg UID=$(id -u) --build-arg GID=$(id -g) -t multi-agent-flow-agent agent/docker/
+docker build --build-arg UID=$(id -u) --build-arg GID=$(id -g) -f agent/docker/Dockerfile -t multi-agent-flow-agent agent/
+```
+
+Or simply delete the image and let it auto-rebuild on next `flow run`:
+
+```bash
+docker rmi multi-agent-flow-agent
 ```
 
 ## Testing
 
 ### Before Fix
 ```bash
-agent-flow run "task"
+flow dev "task"
 # [Docker] Container started: agent-flow-xxx
 # [Docker] Failed to start container: Container health check timeout after 30000ms
 
@@ -118,7 +124,7 @@ docker ps -a | grep agent-flow
 
 ### After Fix
 ```bash
-agent-flow run "task"
+flow dev "task"
 # [Docker] Container started: agent-flow-xxx
 # [Docker] Container is running (no health check)
 # Flow proceeds normally...

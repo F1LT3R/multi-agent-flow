@@ -18,14 +18,10 @@ npm install
 
 ### 2. Set Up Environment
 
-Create a `.env` file in the project root:
+Set your API key (add to `~/.zshrc` or `~/.bashrc` for persistence):
 
 ```bash
-# Copy the example
-cp .env.example .env
-
-# Edit and add your API key
-echo "OPENAI_API_KEY=sk-your-actual-key-here" >> .env
+export OPENAI_API_KEY=sk-your-actual-key-here
 ```
 
 ### 3. Initialize Test Project
@@ -41,7 +37,7 @@ cd test-project
 ../agent/cli.mjs init
 
 # Or if globally linked:
-agent-flow init
+flow init
 ```
 
 This creates:
@@ -50,12 +46,14 @@ This creates:
 - `./plans/` - Requirements
 - `./prompts/` - Custom prompts (from templates)
 - `./traces/` - Execution traces
-- `agent-flow.config.mjs` - Configuration
+- `.flow/flow.config.mjs` - Configuration
 
-### 4. Add API Key to Test Project
+### 4. Verify API Key
+
+Make sure your API key is set in your environment:
 
 ```bash
-echo "OPENAI_API_KEY=sk-your-actual-key-here" > .env
+echo $OPENAI_API_KEY  # Should show your key
 ```
 
 ## Test Scenarios
@@ -65,7 +63,7 @@ echo "OPENAI_API_KEY=sk-your-actual-key-here" > .env
 Test basic functionality:
 
 ```bash
-agent-flow run "Create a simple hello.js file that prints 'Hello, World!'"
+flow dev "Create a simple hello.js file that prints 'Hello, World!'"
 ```
 
 **What to observe:**
@@ -97,7 +95,7 @@ Test with full Docker isolation:
 docker ps
 
 # Run with Docker
-agent-flow run "Create a calculator.js with add, subtract, multiply, divide functions"
+flow dev "Create a calculator.js with add, subtract, multiply, divide functions"
 ```
 
 **What to observe:**
@@ -119,7 +117,7 @@ ls -la project/
 Test the complete flow with tests:
 
 ```bash
-agent-flow run "Build a todo CLI: add, list, complete, and delete todos. Store in JSON file."
+flow dev "Build a todo CLI: add, list, complete, and delete todos. Store in JSON file."
 ```
 
 **What to observe:**
@@ -136,15 +134,15 @@ Interrupt a flow and resume:
 
 ```bash
 # Start a flow
-agent-flow run "Create a REST API server"
+flow dev "Create a REST API server"
 
 # Press Ctrl+C to interrupt during execution
 
 # List checkpoints
-agent-flow list
+flow list
 
 # Resume
-agent-flow resume
+flow resume
 ```
 
 ### Test 5: Single Agent Mode (Debugging)
@@ -152,7 +150,7 @@ agent-flow resume
 Test a single agent in isolation:
 
 ```bash
-agent-flow mode WRITE_USER_STORIES "Build a weather app"
+flow mode WRITE_USER_STORIES "Build a weather app"
 ```
 
 ## Verification Checklist
@@ -211,7 +209,7 @@ ls -la project/
 
 # Should show your username. If root, rebuild image:
 docker rmi multi-agent-flow-agent
-agent-flow run "test"
+flow dev "test"
 ```
 
 ### API Key Issues
@@ -267,8 +265,8 @@ After successful test drive:
 
 If you encounter issues:
 
-1. Check traces in ./traces/ for detailed execution history
-2. Check logs in ./.agent-flow/logs/
+1. Check traces in ./.flow/traces/ for detailed execution history
+2. Check logs in ./.flow/traces/
 3. Ensure Docker is running: `docker info`
 4. Review this guide for troubleshooting steps
 

@@ -1,4 +1,5 @@
 import OpenAI from 'openai'
+import chalk from 'chalk'
 import { BaseAIAdapter } from './base-adapter.mjs'
 
 /**
@@ -15,11 +16,16 @@ export class OpenAIAdapter extends BaseAIAdapter {
 
 	/**
 	 * Create a chat completion with tool support
+	 * @param {Array} messages - Chat messages
+	 * @param {Array} tools - Available tools
+	 * @param {Object} options - Model settings from agent config
+	 * @param {number} options.temperature - Randomness (0-2)
+	 * @param {number} options.top_p - Nucleus sampling (0-1)
+	 * @param {number} options.max_tokens - Max output tokens
+	 * @param {string[]} options.stop - Stop sequences (max 4)
 	 */
 	async createCompletion(messages, tools = [], options = {}) {
 		const model = options.model || this.defaultModel
-		const temperature = options.temperature ?? 0.7
-		const maxTokens = options.maxTokens
 
 		let attempt = 0
 		let lastError = null
@@ -29,11 +35,20 @@ export class OpenAIAdapter extends BaseAIAdapter {
 				const requestParams = {
 					model,
 					messages,
-					temperature,
 				}
 
-				if (maxTokens) {
-					requestParams.max_tokens = maxTokens
+				// Only add parameters if explicitly set (avoid sending defaults)
+				if (options.temperature !== undefined) {
+					requestParams.temperature = options.temperature
+				}
+				if (options.top_p !== undefined) {
+					requestParams.top_p = options.top_p
+				}
+				if (options.max_tokens !== undefined) {
+					requestParams.max_tokens = options.max_tokens
+				}
+				if (options.stop !== undefined) {
+					requestParams.stop = options.stop
 				}
 
 				// Add tools if provided
@@ -89,9 +104,7 @@ export class OpenAIAdapter extends BaseAIAdapter {
 				) {
 					// Exponential backoff
 					const delay = Math.min(1000 * Math.pow(2, attempt), 10000)
-					console.error(
-						`OpenAI API error (attempt ${attempt}/${this.maxRetries}): ${error.message}. Retrying in ${delay}ms...`
-					)
+					this._logApiError(attempt, this.maxRetries, error.status, error.message, delay)
 					await new Promise((resolve) => setTimeout(resolve, delay))
 				} else {
 					// Non-retryable error
@@ -110,13 +123,25 @@ export class OpenAIAdapter extends BaseAIAdapter {
 	 */
 	async *streamCompletion(messages, tools = [], options = {}) {
 		const model = options.model || this.defaultModel
-		const temperature = options.temperature ?? 0.7
 
 		const requestParams = {
 			model,
 			messages,
-			temperature,
 			stream: true,
+		}
+
+		// Only add parameters if explicitly set
+		if (options.temperature !== undefined) {
+			requestParams.temperature = options.temperature
+		}
+		if (options.top_p !== undefined) {
+			requestParams.top_p = options.top_p
+		}
+		if (options.max_tokens !== undefined) {
+			requestParams.max_tokens = options.max_tokens
+		}
+		if (options.stop !== undefined) {
+			requestParams.stop = options.stop
 		}
 
 		if (tools && tools.length > 0) {
@@ -142,6 +167,34 @@ export class OpenAIAdapter extends BaseAIAdapter {
 				}
 			}
 		}
+	}
+
+	/**
+	 * Display API error in a prominent red box
+	 */
+	_logApiError(attempt, maxRetries, status, message, delay) {
+		const W = 60
+		const line = (c) => `║  ${c.padEnd(W - 4)}  ║`
+
+		const title =
+			status === 429
+				? 'API ERROR - Rate Limit (429)'
+				: status === 500
+					? 'API ERROR - Server Error (500)'
+					: status === 503
+						? 'API ERROR - Service Unavailable (503)'
+						: `API ERROR (${status})`
+
+		console.error(chalk.red(`\n╔${'═'.repeat(W)}╗`))
+		console.error(chalk.red(line(title)))
+		console.error(chalk.red(`╠${'═'.repeat(W)}╣`))
+		console.error(chalk.red(line('')))
+		// Truncate message to fit, show first meaningful part
+		const shortMsg = message.length > W - 6 ? message.substring(0, W - 9) + '...' : message
+		console.error(chalk.red(line(shortMsg)))
+		console.error(chalk.red(line(`Retrying in ${delay}ms... (attempt ${attempt}/${maxRetries})`)))
+		console.error(chalk.red(line('')))
+		console.error(chalk.red(`╚${'═'.repeat(W)}╝\n`))
 	}
 }
 

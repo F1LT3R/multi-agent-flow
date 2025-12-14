@@ -1,5 +1,4 @@
 import path from 'path'
-import { TraceRecorder } from './trace-recorder.mjs'
 
 /**
  * Docker Agent Executor
@@ -7,6 +6,9 @@ import { TraceRecorder } from './trace-recorder.mjs'
  *
  * This executor builds and executes an agent script inside the Docker container,
  * ensuring that all AI provider calls and logic run in an isolated environment.
+ *
+ * Traces are written directly by the VM to /project/.flow/traces/ to avoid
+ * JSON serialization limits when passing data back to the host.
  */
 export class DockerAgentExecutor {
 	constructor(agentConfig, dockerManager, options = {}) {
@@ -14,7 +16,6 @@ export class DockerAgentExecutor {
 		this.dockerManager = dockerManager
 		this.options = options
 		this.flowRunCount = options.flowRunCount || 1
-		this.traceRecorder = new TraceRecorder(options.tracesDir || './traces')
 		this.callbacks = options.callbacks || {}
 		this.messages = []
 		this.totalTokenUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
@@ -53,39 +54,56 @@ export class DockerAgentExecutor {
 			})
 		})
 
+		// Accumulate output into buffers for proper markdown rendering
+		let agentOutput = ''
+		const statusLines = []
+
 		const output = await this.dockerManager.execStreaming(
 			`node ${scriptPath}`,
 			{
 			onStderr: (line) => {
-				// Stream stderr to console in real-time with formatting
-				if (line.startsWith('[Turn')) {
-					console.log(chalk.cyan(`\n▶ ${line}`))
-				} else if (line.startsWith('🔧')) {
-					console.log(chalk.gray(line))
-				} else if (line.startsWith('✓')) {
-					console.log(chalk.gray(line))
-				} else if (line.startsWith('✗')) {
-					console.log(chalk.red(line))
-				} else if (line.startsWith('📊')) {
-					console.log(chalk.gray(line))
-				} else if (line.startsWith('💰')) {
-					console.log(chalk.yellow(line))
-				} else if (line.startsWith('--- Test Output ---') || line === '---') {
-					// Test output delimiters - show as-is
-					console.log(chalk.gray(line))
-				} else {
-					// Agent thinking text - render as markdown
-					try {
-						const rendered = marked.parseInline(line)
-						process.stdout.write(rendered + '\n')
-					} catch (err) {
-						// If markdown parsing fails, show plain text
-						process.stdout.write(chalk.gray(line + '\n'))
+				// Classify line as status or agent output
+				if (line.startsWith('[Turn') ||
+					line.startsWith('🔧') ||
+					line.startsWith('✓') ||
+					line.startsWith('✗') ||
+					line.startsWith('📊') ||
+					line.startsWith('💰') ||
+					line.startsWith('--- Test Output ---') ||
+					line === '---' ||
+					line.startsWith('[Templating]') ||
+					line.startsWith('[Constraints]')) {
+					// Status line - store with type for later rendering
+					statusLines.push(line)
+
+					// Render any accumulated agent output before status
+					if (agentOutput.trim()) {
+						console.log(marked(agentOutput))
+						agentOutput = ''
 					}
+
+					// Display status line immediately with appropriate styling
+					if (line.startsWith('[Turn')) {
+						console.log(chalk.cyan(`\n▶ ${line}`))
+					} else if (line.startsWith('✗')) {
+						console.log(chalk.red(line))
+					} else if (line.startsWith('💰')) {
+						console.log(chalk.yellow(line))
+					} else {
+						console.log(chalk.gray(line))
+					}
+				} else {
+					// Agent thinking/markdown content - accumulate
+					agentOutput += line + '\n'
 				}
 			}
 			}
 		)
+
+		// Render any remaining agent output as markdown block
+		if (agentOutput.trim()) {
+			console.log(marked(agentOutput))
+		}
 
 		// Log raw output for debugging
 		if (!output.trim().startsWith('{')) {
@@ -95,7 +113,19 @@ export class DockerAgentExecutor {
 			throw new Error(`Script execution failed. Stdout was not JSON (length: ${output.length})`)
 		}
 
-		const result = JSON.parse(output)
+		let result
+		try {
+			result = JSON.parse(output)
+		} catch (parseError) {
+			console.error(`[${this.agentConfig.name}] JSON parse error at position ${parseError.message.match(/position (\d+)/)?.[1] || '?'}`)
+			console.error(`Output length: ${output.length}`)
+			// Show context around the error position
+			const pos = parseInt(parseError.message.match(/position (\d+)/)?.[1] || '0')
+			if (pos > 0) {
+				console.error(`Context around error: ...${output.substring(Math.max(0, pos - 100), pos + 100)}...`)
+			}
+			throw parseError
+		}
 
 		// Add model to result for cost tracking
 		result.model = this.agentConfig.model
@@ -108,12 +138,8 @@ export class DockerAgentExecutor {
 			this.totalTokenUsage = result.tokenUsage
 		}
 
-		// Record traces from VM execution
-		if (result.turns) {
-			for (const turn of result.turns) {
-				await this._recordTraceFromVMTurn(turn)
-			}
-		}
+		// Traces are now written directly by the VM to /project/.flow/traces/
+		// No need for host-side trace recording
 
 		// Log file creations for user visibility
 		await this._logFileCreations(result)
@@ -140,6 +166,152 @@ import { callTool, getToolDefinitions } from '/workspace/agent/vm-tools/index.mj
 import { getCost, getContextWindow, getContextPercent } from '/workspace/agent/data/model-pricing.mjs'
 import fs from 'fs/promises'
 import { writeFileSync } from 'fs'
+import path from 'path'
+
+// Resolve template placeholders like {{SHARED}} and {{INTENT}}
+async function resolveTemplatePlaceholders(content, templateDir, userIntent) {
+	const pattern = /\\{\\{(\\w+)\\}\\}/g
+	let resolved = content
+	const matches = [...content.matchAll(/\\{\\{(\\w+)\\}\\}/g)]
+
+	for (const match of matches) {
+		const name = match[1]
+
+		// Reserved dynamic placeholder - inject user intent
+		if (name === 'INTENT') {
+			resolved = resolved.replace(match[0], userIntent || '')
+			continue
+		}
+
+		// File-based placeholder - load from common/ directory
+		const commonPath = path.join(templateDir, 'common', name + '.md')
+		try {
+			let commonContent = await fs.readFile(commonPath, 'utf-8')
+			// Recursively resolve placeholders in the included content
+			commonContent = await resolveTemplatePlaceholders(commonContent, templateDir, userIntent)
+			resolved = resolved.replace(match[0], commonContent)
+		} catch (error) {
+			console.error('❌ TEMPLATE ERROR: {{' + name + '}} - ' + error.message + ' (path: ' + commonPath + ')')
+		}
+	}
+	return resolved
+}
+
+// Format file constraints for injection into system prompt
+function formatFileConstraints(constraints) {
+	if (!constraints) return ''
+	const lines = ['# File Constraints']
+	if (constraints.write_patterns && constraints.write_patterns.length > 0) {
+		lines.push('You CAN write files matching: ' + constraints.write_patterns.join(', '))
+	} else {
+		lines.push('You CANNOT write any files (read-only agent).')
+	}
+	if (constraints.exclusions && constraints.exclusions.length > 0) {
+		lines.push('')
+		lines.push('## Exclusions')
+		for (const exclusion of constraints.exclusions) {
+			lines.push('- ' + exclusion.patterns.join(', ') + ': ' + exclusion.message)
+		}
+	}
+	return lines.join('\\n')
+}
+
+// Write trace file directly to disk (bypasses stdout JSON serialization limits)
+function writeTrace(agentName, flowRun, turn, data) {
+	const now = new Date()
+	const datePart = [
+		now.getFullYear(),
+		String(now.getMonth() + 1).padStart(2, '0'),
+		String(now.getDate()).padStart(2, '0')
+	].join('-')
+	const timePart = [
+		String(now.getHours()).padStart(2, '0'),
+		String(now.getMinutes()).padStart(2, '0'),
+		String(now.getSeconds()).padStart(2, '0')
+	].join('-')
+
+	const filename = '/project/.flow/traces/' + datePart + '_' + timePart + '_' + agentName + '_r' + flowRun + '-t' + turn + '.md'
+
+	const parts = []
+	parts.push('# ' + agentName + ' - Run ' + flowRun + ', Turn ' + turn)
+	parts.push('')
+	parts.push('**Timestamp**: ' + now.toLocaleString())
+	parts.push('**Model**: ' + data.model)
+	parts.push('**Flow Run**: ' + flowRun)
+	parts.push('**Agent Turn**: ' + turn + '/' + (data.maxTurns || '?'))
+	parts.push('')
+
+	// System prompt on first turn
+	if (data.systemPrompt) {
+		parts.push('## System Prompt')
+		parts.push('')
+		parts.push('\`\`\`markdown')
+		parts.push(data.systemPrompt)
+		parts.push('\`\`\`')
+		parts.push('')
+	}
+
+	// User input on first turn
+	if (data.userInput) {
+		parts.push('## User Input')
+		parts.push('')
+		parts.push('\`\`\`')
+		parts.push(data.userInput)
+		parts.push('\`\`\`')
+		parts.push('')
+	}
+
+	// Agent response
+	if (data.content) {
+		parts.push('## Agent Response')
+		parts.push('')
+		parts.push(data.content)
+		parts.push('')
+	}
+
+	// Tool calls
+	if (data.toolCalls && data.toolCalls.length > 0) {
+		parts.push('## Tool Calls')
+		parts.push('')
+		data.toolCalls.forEach((call, index) => {
+			parts.push('### ' + (index + 1) + '. ' + call.name)
+			parts.push('')
+			parts.push('**Arguments:**')
+			parts.push('\`\`\`json')
+			parts.push(JSON.stringify(call.arguments, null, 2))
+			parts.push('\`\`\`')
+			parts.push('')
+			if (call.result !== undefined) {
+				parts.push('**Result:**')
+				parts.push('\`\`\`json')
+				parts.push(JSON.stringify(call.result, null, 2))
+				parts.push('\`\`\`')
+				parts.push('')
+			}
+		})
+	}
+
+	// Token usage
+	if (data.tokenUsage) {
+		parts.push('## Token Usage & Cost')
+		parts.push('')
+		parts.push('- Prompt: ' + (data.tokenUsage.prompt_tokens || 0))
+		parts.push('- Completion: ' + (data.tokenUsage.completion_tokens || 0))
+		parts.push('- Total: ' + (data.tokenUsage.total_tokens || 0))
+		if (data.cost !== undefined) {
+			parts.push('- **Cost: $' + data.cost.toFixed(4) + '**')
+		}
+		if (data.contextPercent !== undefined) {
+			parts.push('- **Context Used: ' + data.contextPercent.toFixed(1) + '%**')
+		}
+		parts.push('')
+	}
+
+	parts.push('**Finish Reason**: ' + (data.finishReason || 'unknown'))
+	parts.push('')
+
+	writeFileSync(filename, parts.join('\\n'))
+}
 
 // Wrap everything in try-catch to ensure JSON output even on error
 async function main() {
@@ -153,20 +325,40 @@ async function main() {
 		const provider = ProviderFactory.create(agentConfig.model)
 
 		// Load system prompt (convert host path to VM path)
-		// Host path: /Users/user/project/prompts/AGENT.md
-		// VM path: /project/prompts/AGENT.md
+		// Host path: /Users/user/project/.flow/prompts/AGENT.md
+		// VM path: /project/.flow/prompts/AGENT.md
 		let promptPath = agentConfig.prompt_file
 		if (!promptPath.startsWith('/project/')) {
-			// Extract relative path after 'prompts/'
-			const match = promptPath.match(/prompts\\/(.+)$/)
+			// Extract relative path after '.flow/prompts/'
+			const match = promptPath.match(/\\.flow\\/prompts\\/(.+)$/)
 			if (match) {
-				promptPath = '/project/prompts/' + match[1]
+				promptPath = '/project/.flow/prompts/' + match[1]
 			} else {
-				// Fallback: assume it's already a filename
-				promptPath = '/project/prompts/' + promptPath
+				// Fallback for old prompts/ path format
+				const oldMatch = promptPath.match(/prompts\\/(.+)$/)
+				if (oldMatch) {
+					promptPath = '/project/.flow/prompts/' + oldMatch[1]
+				} else {
+					// Last fallback: assume it's already a filename
+					promptPath = '/project/.flow/prompts/' + promptPath
+				}
 			}
 		}
-		const systemPrompt = await fs.readFile(promptPath, 'utf-8')
+		let systemPrompt = await fs.readFile(promptPath, 'utf-8')
+
+		// Resolve template placeholders ({{SHARED}}, {{INTENT}}, etc.)
+		console.error('[Templating] Resolving placeholders in: ' + promptPath)
+		const beforeLen = systemPrompt.length
+		systemPrompt = await resolveTemplatePlaceholders(systemPrompt, '/project/.flow/prompts', userInput)
+		const hasUnresolved = systemPrompt.includes('{{') && !systemPrompt.includes('{{INTENT}}')
+		console.error('[Templating] Before: ' + beforeLen + ' chars, After: ' + systemPrompt.length + ' chars, Unresolved: ' + hasUnresolved)
+
+		// Inject file constraints so agent knows its boundaries upfront
+		const constraintSection = formatFileConstraints(agentConfig.file_constraints)
+		if (constraintSection) {
+			systemPrompt += '\\n\\n' + constraintSection
+			console.error('[Constraints] Injected file constraints into system prompt')
+		}
 
 		// Initialize messages
 		const messages = [
@@ -197,8 +389,8 @@ async function main() {
 				// Log turn start to stderr for real-time visibility
 				console.error('[Turn ' + turnCount + '/' + agentConfig.max_turns + ']')
 
-				// Call AI provider
-				const response = await provider.createCompletion(messages, tools)
+				// Call AI provider with settings from agent config
+				const response = await provider.createCompletion(messages, tools, agentConfig.settings || {})
 
 				// Accumulate token usage
 				if (response.usage) {
@@ -231,27 +423,58 @@ async function main() {
 					toolResults: [],
 				}
 
-				// Execute tool calls if present
+				// Include inputs on first turn for debugging traces
+				// Limit size to prevent JSON serialization issues
+				if (turnCount === 1) {
+					turnResult.systemPrompt = systemPrompt.length > 50000
+						? systemPrompt.substring(0, 50000) + '\\n[TRUNCATED]'
+						: systemPrompt
+					turnResult.userInput = userInput.length > 10000
+						? userInput.substring(0, 10000) + '\\n[TRUNCATED]'
+						: userInput
+				}
+
+				// Format tool call for display
+			const formatToolCall = (name, args) => {
+				switch (name) {
+					case 'list_directory':
+						return \`list_directory('\${args.path || '.'}')\`
+					case 'read_file':
+						return \`read_file('\${args.path}')\`
+					case 'write_file':
+						return \`write_file('\${args.path}')\`
+					case 'delete_file':
+						return \`delete_file('\${args.path}')\`
+					case 'move_file':
+						return \`move_file('\${args.source}' -> '\${args.destination}')\`
+					case 'grep':
+						return \`grep('\${args.pattern}', '\${args.path || '.'}')\`
+					case 'run_node_tests':
+						return args.pattern ? \`run_node_tests('\${args.pattern}')\` : 'run_node_tests()'
+					default:
+						return \`\${name}(...)\`
+				}
+			}
+
+			// Execute tool calls if present
 				if (response.toolCalls && response.toolCalls.length > 0) {
 					for (let i = 0; i < response.toolCalls.length; i++) {
 						const toolCall = response.toolCalls[i]
 						try {
 							// Log tool call start to stderr
-							console.error('\\n🔧 ' + toolCall.name + '(...)')
+							console.error('\\n🔧 ' + formatToolCall(toolCall.name, toolCall.arguments))
 
 						// Call tool directly (no HTTP - runs in VM!)
-						const result = await callTool(toolCall.name, toolCall.arguments)
+						// Pass agentConfig for file_constraints enforcement
+						const result = await callTool(toolCall.name, toolCall.arguments, agentConfig)
 
 						// Log tool success to stderr
 						console.error('✓ ' + toolCall.name + ' completed')
 
-						// For test execution, log the output
-						if (toolCall.name === 'run_node_tests' && result.stdout) {
+						// For test execution, log the colored output (stderr has colors for humans)
+						if (toolCall.name === 'run_node_tests' && result.stderr) {
 							console.error('\\n--- Test Output ---')
-							console.error(result.stdout)
-							if (result.stderr) {
-								console.error(result.stderr)
-							}
+							console.error(result.stderr)
 							console.error('---\\n')
 						}
 
@@ -319,6 +542,13 @@ async function main() {
 				console.error('💰 Cost: $' + costData.total_cost.toFixed(4) + ' | Context: ' + contextPct.toFixed(1) + '%\\n')
 			}
 
+			// Write trace file directly (bypasses stdout JSON limits)
+			writeTrace(agentConfig.name, ${this.flowRunCount}, turnCount, {
+				...turnResult,
+				systemPrompt: turnCount === 1 ? systemPrompt : undefined,
+				userInput: turnCount === 1 ? userInput : undefined,
+			})
+
 			// Check if done
 				if (response.finishReason === 'stop' || response.finishReason === 'end_turn') {
 					results.success = true
@@ -337,8 +567,16 @@ async function main() {
 			}
 		}
 
-		// Store final messages for FlowRunner
-		results.messages = messages
+		// Slim down results for stdout (traces already written to disk)
+		// Remove large fields to avoid JSON serialization issues
+		delete results.messages
+		results.turns = results.turns.map(t => ({
+			turn: t.turn,
+			tokenUsage: t.tokenUsage,
+			cost: t.cost,
+			contextPercent: t.contextPercent,
+			finishReason: t.finishReason,
+		}))
 
 		// Output result as JSON to stdout
 		const jsonOutput = JSON.stringify(results)
@@ -385,18 +623,6 @@ main().catch(error => {
 
 		// Clean up temp file
 		await fs.unlink(tempFile)
-	}
-
-	/**
-	 * Record trace from VM turn data
-	 */
-	async _recordTraceFromVMTurn(turnData) {
-		await this.traceRecorder.recordTurn(
-			this.agentConfig.name,
-			this.flowRunCount,
-			turnData.turn,
-			turnData
-		)
 	}
 
 	/**

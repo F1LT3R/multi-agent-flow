@@ -1,8 +1,9 @@
-import { AgentExecutor } from './agent-executor.mjs'
 import { DockerAgentExecutor } from './docker-agent-executor.mjs'
-import { MCPClient } from './mcp-client.mjs'
 import { CheckpointManager, createStateSnapshot, restoreStateFromSnapshot } from './checkpoint-manager.mjs'
 import { DockerManager } from './docker-manager.mjs'
+import { Ratchet } from './ratchet.mjs'
+import { SnapshotManager } from './snapshot-manager.mjs'
+import { promptForApproval } from './diff-approval.mjs'
 import readline from 'readline'
 import chalk from 'chalk'
 import fs from 'fs/promises'
@@ -22,11 +23,9 @@ export class FlowRunner {
 			throw new Error(`Flow '${flowName}' not found in configuration`)
 		}
 
-		this.mcpClient = new MCPClient()
-		this.checkpointManager = new CheckpointManager(
-			this.config.persistence.checkpoints || './.flow/logs/checkpoints'
-		)
+		this.checkpointManager = new CheckpointManager('./.flow/checkpoints')
 		this.dockerManager = new DockerManager(config)
+		this.ratchet = new Ratchet()
 
 		this.state = {
 			flowName,
@@ -36,6 +35,56 @@ export class FlowRunner {
 			userInput: null,
 			startTime: null,
 			messageHistories: {},
+			stories: {},  // Injected from ratchet
+		}
+	}
+
+	/**
+	 * Validate template placeholders before running agents
+	 * Fails fast if any placeholder references a missing file
+	 */
+	async validateTemplates() {
+		const RESERVED_PLACEHOLDERS = ['INTENT']  // Dynamic placeholders, not file-based
+		const promptsDir = path.join(process.cwd(), '.flow/prompts')
+		const commonDir = path.join(promptsDir, 'common')
+		const pattern = /\{\{(\w+)\}\}/g
+		const errors = []
+
+		// Check each agent's prompt file
+		for (const agent of this.config.agents) {
+			// Extract filename from prompt_file path
+			let promptFile = agent.prompt_file
+			if (promptFile.includes('.flow/prompts/')) {
+				promptFile = promptFile.split('.flow/prompts/').pop()
+			} else if (promptFile.includes('prompts/')) {
+				promptFile = promptFile.split('prompts/').pop()
+			}
+			const promptPath = path.join(promptsDir, promptFile)
+
+			try {
+				const content = await fs.readFile(promptPath, 'utf-8')
+				let match
+				while ((match = pattern.exec(content)) !== null) {
+					const name = match[1]
+
+					// Skip reserved dynamic placeholders
+					if (RESERVED_PLACEHOLDERS.includes(name)) continue
+
+					const commonPath = path.join(commonDir, `${name}.md`)
+					try {
+						await fs.access(commonPath)
+					} catch {
+						errors.push(`${agent.name}: placeholder {{${name}}} requires missing file: common/${name}.md`)
+					}
+				}
+			} catch (error) {
+				// Prompt file doesn't exist yet - skip validation
+				// (cli.mjs will copy templates during init)
+			}
+		}
+
+		if (errors.length > 0) {
+			throw new Error(`Template validation failed:\n${errors.join('\n')}`)
 		}
 	}
 
@@ -43,6 +92,9 @@ export class FlowRunner {
 	 * Run the flow
 	 */
 	async run(userInput, runId = null) {
+		// Validate templates before anything else
+		await this.validateTemplates()
+
 		// Initialize
 		await this.checkpointManager.initialize()
 
@@ -60,14 +112,19 @@ export class FlowRunner {
 		console.log(chalk.blue.bold(`[FlowRunner] Starting flow: ${this.flowName}`))
 		console.log(chalk.blue(`[FlowRunner] Run ID: ${runId}`))
 
+		// Prepare ratchet (copy tests, read stories) BEFORE Docker starts
+		const isNewRun = !runId || this.state.flowRunCount === 0
+		const ratchetPrep = await this.ratchet.prepareRun(isNewRun)
+		this.state.stories = ratchetPrep.stories
+
 		// Start Docker container (always required)
 		console.log(chalk.cyan('\n[Docker] Starting container...'))
 		try {
 			await this.dockerManager.startContainer()
 			await this.dockerManager.waitForHealthy()
 
-			// Validate VM isolation before running agents
-			await this._validateVMIsolation()
+			// Run security checks before running agents
+			await this._runSecurityChecks()
 		} catch (error) {
 			console.error(chalk.red('[Docker] Failed to start container:'), error.message)
 			throw error
@@ -109,6 +166,37 @@ export class FlowRunner {
 				// Flow completed successfully
 				console.log(chalk.green.bold('\n[FlowRunner] Flow completed successfully!'))
 				flowSuccess = true
+
+				// Check for test file changes that need approval
+				const newTestFiles = await this.ratchet.findNewTestFiles()
+				if (newTestFiles.length > 0) {
+					// Prompt user to approve test changes
+					const decisions = await promptForApproval(
+						newTestFiles,
+						this.ratchet.testsRatchet,
+						this.ratchet.projectRoot
+					)
+					await this.ratchet.finalizeWithApprovals(decisions)
+				} else {
+					// No new test files - just ratchet existing tests
+					await this.ratchet.finalizeSuccess()
+				}
+
+				// Create snapshot of successful run
+				try {
+					console.log(chalk.cyan('\nCreating snapshot of successful run...'))
+					const snapshotManager = new SnapshotManager('./.flow/snapshots')
+					const snapshotTimestamp = await snapshotManager.createSnapshot()
+					console.log(chalk.green(`✓ Snapshot created: ${snapshotTimestamp}`))
+				} catch (error) {
+					console.error(chalk.red(`✗ Failed to create snapshot: ${error.message}`))
+					console.error(chalk.gray('Stack trace:'))
+					console.error(error.stack)
+					console.error(chalk.gray('Continuing without snapshot...'))
+				}
+
+				// Context clearing is handled by cli.mjs after displaying the summary
+
 				return {
 					success: true,
 					flowRunCount: this.state.flowRunCount,
@@ -125,12 +213,22 @@ export class FlowRunner {
 				reason: 'max_flow_runs_exceeded',
 			}
 		} finally {
-			// Stop Docker container (always required)
-			console.log(chalk.cyan('\n[Docker] Stopping container...'))
-			try {
-				await this.dockerManager.stopContainer()
-			} catch (error) {
-				console.error(chalk.yellow('[Docker] Error stopping container:'), error.message)
+			// Stop Docker container
+			// On failure: keep container for investigation
+			// On success: clean up container
+			if (flowSuccess) {
+				console.log(chalk.cyan('\n[Docker] Stopping container...'))
+				try {
+					await this.dockerManager.stopContainer()
+				} catch (error) {
+					console.error(chalk.yellow('[Docker] Error stopping container:'), error.message)
+				}
+			} else {
+				console.log(chalk.yellow('\n[Docker] Keeping container for investigation...'))
+				console.log(chalk.gray(`  Container: ${this.dockerManager.containerName}`))
+				console.log(chalk.gray(`  Inspect: docker exec -it ${this.dockerManager.containerName} sh`))
+				console.log(chalk.gray(`  Logs: docker logs ${this.dockerManager.containerName}`))
+				console.log(chalk.gray(`  Stop: docker stop ${this.dockerManager.containerName} && docker rm ${this.dockerManager.containerName}`))
 			}
 		}
 	}
@@ -156,8 +254,8 @@ export class FlowRunner {
 			console.log(chalk.blue(`Goal: ${agentConfig.goal}`))
 			console.log(chalk.blue(`${'='.repeat(60)}\n`))
 
-		// Prepare input for agent
-		const agentInput = this._prepareAgentInput(agentName, i)
+		// Prepare input for agent (includes context injection)
+		const agentInput = await this._prepareAgentInput(agentName, i)
 
 		// Execute agent inside Docker VM for maximum isolation
 		// Tools now run directly inside the VM - no HTTP MCP servers needed!
@@ -166,7 +264,7 @@ export class FlowRunner {
 			this.dockerManager,
 			{
 				flowRunCount: this.state.flowRunCount,
-				tracesDir: this.config.paths.traces,
+				tracesDir: './.flow/traces',
 				callbacks: this._createCallbacks(agentName),
 				pricingOverrides: this.config.pricing?.overrides || {},
 			}
@@ -178,8 +276,16 @@ export class FlowRunner {
 			result.tokenUsage = executor.getTokenUsage()
 			this.state.agentResults.push(result)
 
+			// Save agent output to context for cross-reflow/cross-run learning
+			await this._saveAgentContext(agentName, result.finalMessage)
+
 			// Save message history for potential reflow
 			this.state.messageHistories[agentName] = executor.getMessages()
+
+			// WRITE_USER_STORIES agent: Orchestrator saves the stories
+			if (agentName === 'WRITE_USER_STORIES' && result.finalMessage) {
+				await this._saveStoryFiles(result.finalMessage)
+			}
 
 			// REPORT agent: Orchestrator saves the report files
 			if (agentName === 'REPORT' && result.finalMessage) {
@@ -207,11 +313,41 @@ export class FlowRunner {
 
 	/**
 	 * Prepare input for agent based on previous results
+	 * Injects context from previous agents based on context_injection config
 	 */
-	_prepareAgentInput(agentName, agentIndex) {
-		// First agent gets the original user input
+	async _prepareAgentInput(agentName, agentIndex) {
+		const agentConfig = this.config.agents.find(a => a.name === agentName)
+		const injection = agentConfig?.context_injection || {}
+
+		// Build context prefix from injected agent outputs
+		let contextPrefix = ''
+		for (const [sourceAgent, shouldInject] of Object.entries(injection)) {
+			if (!shouldInject) continue
+
+			const content = await this._loadAgentContext(sourceAgent)
+			if (content) {
+				contextPrefix += `## ${sourceAgent} OUTPUT (from previous attempt)\n`
+				contextPrefix += `Use this to understand what happened and fix any issues.\n\n`
+				contextPrefix += content
+				contextPrefix += `\n---\n\n`
+			}
+		}
+
+		// First agent gets the original user input with injected stories
 		if (agentIndex === 0) {
-			return this.state.userInput
+			let input = this.state.userInput
+
+			// Inject previous stories from ratchet if available
+			if (this.state.stories && Object.keys(this.state.stories).length > 0) {
+				let storiesSection = `## PREVIOUS STORIES (from ratchet)\n\n`
+				for (const [name, content] of Object.entries(this.state.stories)) {
+					storiesSection += `### ${name}\n${content}\n\n`
+				}
+				storiesSection += `---\n\n`
+				input = storiesSection + input
+			}
+
+			return contextPrefix + input
 		}
 
 		// Subsequent agents get context from previous agents
@@ -227,7 +363,7 @@ export class FlowRunner {
 
 		// The agent's prompt file defines its specific task
 		// No need to inject task descriptions here
-		return context
+		return contextPrefix + context
 	}
 
 	/**
@@ -264,47 +400,47 @@ export class FlowRunner {
 	 * Display agent summary
 	 */
 	async _displayAgentSummary(result) {
-	console.log(chalk.cyan(`\n--- Agent Summary ---`))
-	console.log(`Turns used: ${result.turns.length}`)
-	console.log(`Success: ${result.success ? chalk.green('✓') : chalk.red('✗')}`)
+		console.log(chalk.cyan.bold(`\n🤖 Agent Summary`))
+		console.log(`${result.success ? '✅' : '❌'} Status: ${result.success ? chalk.green.bold('Success') : chalk.red.bold('Failed')}`)
+		console.log(`🔄 Turns: ${chalk.white.bold(result.turns.length)}`)
 
-	if (result.tokenUsage) {
-		const promptTokens = result.tokenUsage.prompt_tokens || result.tokenUsage.prompt || 0
-		const completionTokens = result.tokenUsage.completion_tokens || result.tokenUsage.completion || 0
-		const totalTokens = result.tokenUsage.total_tokens || result.tokenUsage.total || 0
+		if (result.tokenUsage) {
+			const promptTokens = result.tokenUsage.prompt_tokens || result.tokenUsage.prompt || 0
+			const completionTokens = result.tokenUsage.completion_tokens || result.tokenUsage.completion || 0
+			const totalTokens = result.tokenUsage.total_tokens || result.tokenUsage.total || 0
 
-		console.log(
-			`Tokens: ${promptTokens} in + ${completionTokens} out = ${totalTokens} total`
-		)
+			console.log(
+				`📥 Tokens: ${chalk.white(promptTokens.toLocaleString())} in + ${chalk.white(completionTokens.toLocaleString())} out = ${chalk.white.bold(totalTokens.toLocaleString())} total`
+			)
 
-		// Calculate and display cost
-		const { getCost, getContextPercent } = await import('../data/model-pricing.mjs')
-		const pricingOverrides = this.config.pricing?.overrides || {}
-		const costData = getCost(result.model, promptTokens, completionTokens, pricingOverrides)
+			// Calculate and display cost
+			const { getCost, getContextPercent } = await import('../data/model-pricing.mjs')
+			const pricingOverrides = this.config.pricing?.overrides || {}
+			const costData = getCost(result.model, promptTokens, completionTokens, pricingOverrides)
 
-		// Calculate max context used
-		let maxContextPct = 0
-		if (result.turns) {
-			for (const turn of result.turns) {
-				if (turn.contextPercent > maxContextPct) {
-					maxContextPct = turn.contextPercent
+			// Calculate max context used
+			let maxContextPct = 0
+			if (result.turns) {
+				for (const turn of result.turns) {
+					if (turn.contextPercent > maxContextPct) {
+						maxContextPct = turn.contextPercent
+					}
 				}
+			}
+
+			console.log(
+				`💰 Cost: ${chalk.green('$' + costData.input_cost.toFixed(4))} in + ${chalk.green('$' + costData.output_cost.toFixed(4))} out = ${chalk.green.bold('$' + costData.total_cost.toFixed(4))} total`
+			)
+			if (maxContextPct > 0) {
+				console.log(`📊 Max Context: ${chalk.cyan.bold(maxContextPct.toFixed(1) + '%')}`)
 			}
 		}
 
-		console.log(
-			`Cost: $${costData.input_cost.toFixed(4)} in + $${costData.output_cost.toFixed(4)} out = $${costData.total_cost.toFixed(4)} total`
-		)
-		if (maxContextPct > 0) {
-			console.log(`Max Context: ${maxContextPct.toFixed(1)}%`)
-		}
-	}
-
 		if (result.error) {
-			console.error(chalk.red(`Error: ${result.error}`))
+			console.error(chalk.red(`⚠️  Error: ${result.error}`))
 		}
 
-		console.log(``)
+		console.log('')
 	}
 
 	/**
@@ -328,7 +464,52 @@ export class FlowRunner {
 	}
 
 	/**
+	 * Ask user if they want to clear the context directory after successful flow
+	 * Auto-clears in non-interactive mode
+	 */
+	async _askClearContext() {
+		// Check if context directory exists
+		const contextDir = path.join(process.cwd(), '.flow/context')
+		try {
+			await fs.access(contextDir)
+		} catch {
+			// No context to clear
+			return
+		}
+
+		// Auto-clear in non-interactive mode
+		if (process.env.AUTO_APPROVE === 'true') {
+			console.log(chalk.yellow('[FlowRunner] Auto-clearing context (non-interactive mode)'))
+			await this._clearContext()
+			console.log(chalk.green('✓ Context cleared'))
+			return
+		}
+
+		const rl = readline.createInterface({
+			input: process.stdin,
+			output: process.stdout,
+		})
+
+		return new Promise((resolve) => {
+			rl.question(
+				'\nFlow completed successfully. Clear working context? (y/n): ',
+				async (answer) => {
+					rl.close()
+					if (answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes') {
+						await this._clearContext()
+						console.log(chalk.green('✓ Context cleared'))
+					} else {
+						console.log(chalk.gray('Context preserved in .flow/context/'))
+					}
+					resolve()
+				}
+			)
+		})
+	}
+
+	/**
 	 * Save REPORT agent output to files (orchestrator responsibility)
+	 * Reports are saved to .flow/ratchet/reports/
 	 */
 	async _saveReportFiles(reportContent) {
 		const now = new Date()
@@ -347,16 +528,16 @@ export class FlowRunner {
 		const timestamp = `${datePart}_${timePart}`
 		const runNumber = this.state.flowRunCount
 
-		// Ensure stories directory exists
-		const storiesDir = path.join(process.cwd(), 'stories')
-		await fs.mkdir(storiesDir, { recursive: true })
+		// Ensure reports directory exists in ratchet
+		const reportsDir = path.join(process.cwd(), '.flow/ratchet/reports')
+		await fs.mkdir(reportsDir, { recursive: true })
 
 		// Save to LAST_RUN_REPORT.md (canonical version)
-		const lastRunPath = path.join(storiesDir, 'LAST_RUN_REPORT.md')
+		const lastRunPath = path.join(reportsDir, 'LAST_RUN_REPORT.md')
 		await fs.writeFile(lastRunPath, reportContent, 'utf-8')
 
 		// Save to timestamped archive
-		const archivedPath = path.join(storiesDir, `${timestamp}_REPORT_r${runNumber}.md`)
+		const archivedPath = path.join(reportsDir, `${timestamp}_REPORT_r${runNumber}.md`)
 		await fs.writeFile(archivedPath, reportContent, 'utf-8')
 
 		console.log(chalk.green(`\n[Orchestrator] Report saved:`))
@@ -365,44 +546,209 @@ export class FlowRunner {
 	}
 
 	/**
-	 * Validate VM isolation before executing agents
-	 * SECURITY: Ensures Docker mounts are configured correctly
+	 * Save WRITE_USER_STORIES agent output to ratchet (orchestrator responsibility)
+	 * Stories are saved to .flow/ratchet/stories/
 	 */
-	async _validateVMIsolation() {
-		console.log(chalk.cyan('[Security] Validating VM isolation...'))
+	async _saveStoryFiles(storyContent) {
+		const storiesDir = path.join(process.cwd(), '.flow/ratchet/stories')
+		await fs.mkdir(storiesDir, { recursive: true })
 
+		// Save to USER_STORIES.md (canonical version)
+		const storyPath = path.join(storiesDir, 'USER_STORIES.md')
+		await fs.writeFile(storyPath, storyContent, 'utf-8')
+
+		console.log(chalk.green(`\n[Orchestrator] Stories saved: ${storyPath}`))
+	}
+
+	/**
+	 * Run comprehensive security checks before executing agents
+	 * SECURITY: Validates VM isolation with active escape tests
+	 * All checks must pass or the container is immediately terminated
+	 */
+	async _runSecurityChecks() {
+		const W = 44 // Inner width
+		const line = (content) => `║${content.padEnd(W)}║`
+		const divider = () => `╠${'═'.repeat(W)}╣`
+
+		const logCheck = (id, name, passed) => {
+			const status = passed ? 'PASS' : 'FAIL'
+			// Build row without colors first, then colorize after padding
+			const row = `  ${id}  ${name.padEnd(26)}${status}  `.padEnd(W)
+			const colored = passed
+				? row.replace(status, chalk.green(status))
+				: row.replace(status, chalk.red(status))
+			console.log(`║${colored}║`)
+		}
+
+		// Box top
+		console.log(chalk.cyan.bold(`\n╔${'═'.repeat(W)}╗`))
+		console.log(chalk.cyan.bold(line('           SECURITY VALIDATION              ')))
+		console.log(chalk.cyan.bold(divider()))
+
+		// SEC-01: Container running
+		let inspect
 		try {
-			// Test 1: Verify container is running
-			const inspect = await this.dockerManager.container.inspect()
+			inspect = await this.dockerManager.container.inspect()
+			logCheck('SEC-01', 'Container running', inspect.State.Running)
 			if (!inspect.State.Running) {
-				throw new Error('Container is not running')
+				await this._securityFailure('SEC-01', 'Container is not running')
 			}
+		} catch (error) {
+			logCheck('SEC-01', 'Container running', false)
+			await this._securityFailure('SEC-01', error.message)
+		}
 
-		// Test 2: Verify mounts are present
-		const mounts = inspect.Mounts
-	const requiredMounts = [
-		{ path: '/project', mode: 'rw' },            // User project root
-	]
+		// SEC-02: Mount /project verified
+		const mount = inspect.Mounts.find(m => m.Destination === '/project')
+		const mountValid = !!mount && mount.RW
+		logCheck('SEC-02', 'Mount /project', mountValid)
+		if (!mountValid) {
+			await this._securityFailure('SEC-02', 'Mount /project missing or not writable')
+		}
 
-		for (const required of requiredMounts) {
-			const mount = mounts.find(m => m.Destination === required.path)
-			if (!mount) {
-				throw new Error(`Missing mount: ${required.path}`)
-			}
-			if (!mount.RW && required.mode === 'rw') {
-				throw new Error(`Mount ${required.path} should be writable but is read-only`)
-			}
-			if (mount.RW && required.mode === 'ro') {
-				throw new Error(`Mount ${required.path} should be read-only but is writable`)
+		// SEC-03 to SEC-07: Active escape tests (run inside container)
+		const escapeTests = [
+			{ id: 'SEC-03', name: 'Absolute path blocked', path: '/tmp/escape.txt', shouldFail: true },
+			{ id: 'SEC-04', name: 'Parent traversal', path: '../escape.txt', shouldFail: true },
+			{ id: 'SEC-05', name: 'Nested traversal', path: 'a/b/../../../escape.txt', shouldFail: true },
+			{ id: 'SEC-06', name: 'Protected dir (.flow/)', path: '.flow/breach.txt', shouldFail: true },
+			{ id: 'SEC-07', name: 'Valid write allowed', path: '.security-check-temp.txt', shouldFail: false },
+		]
+
+		for (const test of escapeTests) {
+			const result = await this._testWriteEscape(test.path)
+			const passed = test.shouldFail ? !result.success : result.success
+			logCheck(test.id, test.name, passed)
+
+			if (!passed) {
+				await this._securityFailure(test.id, `Write escape ${test.shouldFail ? 'succeeded' : 'failed'} with path "${test.path}"`)
 			}
 		}
 
-	console.log(chalk.green('[Security] ✓ VM isolation validated'))
-	console.log(chalk.gray(`  - User project: /project (Read-Write)`))
-	console.log(chalk.gray(`  - Agent code: /workspace/agent (Built-in, isolated)`))
+		// Cleanup temp file from SEC-07
+		await this._cleanupSecurityTestFile('.security-check-temp.txt')
+
+		// Success footer with spacing
+		console.log(chalk.cyan.bold(divider()))
+		console.log(chalk.cyan.bold(line('')))
+		console.log(chalk.green.bold(line('          ALL CHECKS PASSED                 ')))
+		console.log(chalk.green.bold(line('             Agents OK                      ')))
+		console.log(chalk.cyan.bold(line('')))
+		console.log(chalk.cyan.bold(`╚${'═'.repeat(W)}╝\n`))
+	}
+
+	/**
+	 * Handle security check failure - terminate container and throw
+	 */
+	async _securityFailure(checkId, reason) {
+		const W = 44
+		const line = (content) => `║${content.padEnd(W)}║`
+		const divider = () => `╠${'═'.repeat(W)}╣`
+
+		console.log(chalk.red.bold(divider()))
+		console.log(chalk.red.bold(line('')))
+		console.log(chalk.red.bold(line('        Container terminated.               ')))
+		console.log(chalk.red.bold(line(`        ${reason.substring(0, 34)}`)))
+		console.log(chalk.red.bold(line('')))
+		console.log(chalk.red.bold(`╚${'═'.repeat(W)}╝`))
+
+		try {
+			await this.dockerManager.stopContainer()
+		} catch (err) {
+			// Ignore errors during emergency shutdown
+		}
+
+		throw new Error(`SECURITY BREACH: ${checkId} failed - ${reason}. Container terminated.`)
+	}
+
+	/**
+	 * Test if a write to the given path succeeds or is blocked
+	 * Runs the actual vm-tools write_file inside the container
+	 */
+	async _testWriteEscape(testPath) {
+		// Escape the path for use in the script
+		const escapedPath = testPath.replace(/'/g, "\\'")
+		const script = `
+			import { callTool } from '/workspace/agent/vm-tools/index.mjs';
+			try {
+				await callTool('write_file', { path: '${escapedPath}', content: 'SECURITY_TEST' });
+				console.log('SUCCESS');
+			} catch (e) {
+				console.log('BLOCKED:' + e.message);
+			}
+		`.replace(/\n/g, ' ').replace(/\t/g, ' ')
+
+		try {
+			const result = await this.dockerManager.exec(`node --input-type=module -e "${script}"`)
+			return {
+				success: result.includes('SUCCESS'),
+				error: result.includes('BLOCKED:') ? result.split('BLOCKED:')[1].trim() : null
+			}
 		} catch (error) {
-			console.error(chalk.red('[Security] VM isolation validation failed:'), error.message)
-			throw new Error(`VM isolation validation failed: ${error.message}`)
+			return {
+				success: false,
+				error: error.message
+			}
+		}
+	}
+
+	/**
+	 * Cleanup the security test temp file
+	 */
+	async _cleanupSecurityTestFile(fileName) {
+		try {
+			const script = `
+				import { callTool } from '/workspace/agent/vm-tools/index.mjs';
+				try {
+					await callTool('delete_file', { path: '${fileName}' });
+					console.log('CLEANED');
+				} catch (e) {
+					console.log('SKIP');
+				}
+			`.replace(/\n/g, ' ').replace(/\t/g, ' ')
+
+			await this.dockerManager.exec(`node --input-type=module -e "${script}"`)
+		} catch (error) {
+			// Ignore cleanup errors
+		}
+	}
+
+	/**
+	 * Save agent output to context directory
+	 * Context is ephemeral working memory for cross-reflow/cross-run learning
+	 */
+	async _saveAgentContext(agentName, content) {
+		if (!content) return
+
+		const contextDir = path.join(process.cwd(), '.flow/context')
+		await fs.mkdir(contextDir, { recursive: true })
+
+		const contextPath = path.join(contextDir, `${agentName}.md`)
+		await fs.writeFile(contextPath, content, 'utf-8')
+	}
+
+	/**
+	 * Load agent output from context directory
+	 * Returns null if no context exists for the agent
+	 */
+	async _loadAgentContext(agentName) {
+		const contextPath = path.join(process.cwd(), '.flow/context', `${agentName}.md`)
+		try {
+			return await fs.readFile(contextPath, 'utf-8')
+		} catch {
+			return null
+		}
+	}
+
+	/**
+	 * Clear the context directory
+	 */
+	async _clearContext() {
+		const contextDir = path.join(process.cwd(), '.flow/context')
+		try {
+			await fs.rm(contextDir, { recursive: true, force: true })
+		} catch {
+			// Directory may not exist, that's fine
 		}
 	}
 }

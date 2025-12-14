@@ -2,7 +2,7 @@
 
 ## Problem
 
-When `agent-flow run` was interrupted or crashed, the MCP servers (running on ports 3100-3103) would remain running in the background. The next run would fail with:
+When `flow dev` was interrupted or crashed, the MCP servers (running on ports 3100-3103) would remain running in the background. The next run would fail with:
 
 ```
 Error: listen EADDRINUSE: address already in use :::3100
@@ -91,22 +91,22 @@ agent-flow cleanup
 ### Before Fix
 ```bash
 # Run 1
-agent-flow run "task"
+flow dev "task"
 # Press Ctrl+C to interrupt
 
 # Run 2
-agent-flow run "task"
+flow dev "task"
 # Error: EADDRINUSE :::3100 (cryptic stack trace)
 ```
 
 ### After Fix
 ```bash
 # Run 1
-agent-flow run "task"
+flow dev "task"
 # Press Ctrl+C to interrupt
 
 # Run 2
-agent-flow run "task"
+flow dev "task"
 # ❌ ERROR: MCP server ports are already in use
 # (Clear message with fix instructions)
 
@@ -115,7 +115,7 @@ agent-flow cleanup
 # ✓ Killed processes on ports 3100-3103
 
 # Run 3
-agent-flow run "task"
+flow dev "task"
 # Works! ✓
 ```
 
@@ -123,13 +123,13 @@ agent-flow run "task"
 
 1. **Random Ports**: Use random available ports instead of fixed ones
    - ❌ Rejected: Harder to debug, need port discovery mechanism
-   
+
 2. **Auto-cleanup on Start**: Kill existing processes automatically
    - ❌ Rejected: Could kill legitimate processes, too aggressive
-   
+
 3. **PID Files**: Track server PIDs and clean them up
    - ❌ Rejected: More complex, PID files can become stale
-   
+
 4. **Port Reuse**: Use SO_REUSEADDR socket option
    - ❌ Rejected: Can cause race conditions, not a clean solution
 
@@ -145,7 +145,7 @@ agent-flow run "task"
 
 Potential enhancements:
 - Add signal handlers to ensure clean shutdown on Ctrl+C
-- Add `--force` flag to `agent-flow run` to auto-cleanup before starting
+- Add `--force` flag to `flow dev` to auto-cleanup before starting
 - Monitor server health and auto-restart if needed
 - Use Unix domain sockets instead of TCP ports (eliminates port conflicts)
 

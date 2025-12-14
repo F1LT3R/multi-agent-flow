@@ -28,6 +28,13 @@ export class ProviderFactory {
 		} else if (model.startsWith('grok-')) {
 			// xAI models (future implementation)
 			throw new Error('xAI/Grok provider not yet implemented. Coming soon!')
+		} else if (model.startsWith('deepseek-')) {
+			// DeepSeek models - uses OpenAI-compatible API
+			const apiKey = env.DEEPSEEK_API_KEY
+			if (!apiKey) {
+				throw new Error('DEEPSEEK_API_KEY environment variable is required for DeepSeek models')
+			}
+			return new OpenAIAdapter(apiKey, { model, baseUrl: 'https://api.deepseek.com/v1' })
 		} else {
 			throw new Error(`Unknown model: ${model}. Cannot determine provider.`)
 		}
@@ -61,6 +68,12 @@ export class ProviderFactory {
 				models: ['grok-1', 'grok-2'],
 				envVar: 'XAI_API_KEY',
 				supported: false,
+			},
+			{
+				name: 'DeepSeek',
+				models: ['deepseek-chat', 'deepseek-coder'],
+				envVar: 'DEEPSEEK_API_KEY',
+				supported: true,
 			},
 		]
 	}

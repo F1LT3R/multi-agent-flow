@@ -52,18 +52,18 @@ All SKIP_DOCKER bypass mechanisms have been removed. Docker is now **mandatory**
 ### Before
 ```bash
 # These would all work:
-agent-flow run "task"                    # Uses Docker if available
-SKIP_DOCKER=true agent-flow run "task"  # Bypasses Docker
+flow dev "task"                    # Uses Docker if available
+SKIP_DOCKER=true flow dev "task"  # Bypasses Docker
 # If Docker unavailable, auto-falls back to no-Docker mode
 ```
 
 ### After
 ```bash
 # Only this works:
-agent-flow run "task"  # Requires Docker, exits with error if unavailable
+flow dev "task"  # Requires Docker, exits with error if unavailable
 
 # This no longer bypasses Docker:
-SKIP_DOCKER=true agent-flow run "task"  # Still checks Docker, exits if unavailable
+SKIP_DOCKER=true flow dev "task"  # Still checks Docker, exits if unavailable
 ```
 
 ## Error Message
@@ -93,20 +93,20 @@ To verify the changes work:
 ### Test 1: With Docker Running
 ```bash
 cd ~/test-project
-agent-flow run "test task"
+flow dev "test task"
 # Should work normally, container starts and stops
 ```
 
 ### Test 2: Without Docker
 ```bash
 # Stop Docker Desktop
-agent-flow run "test task"
+flow dev "test task"
 # Should exit immediately with clear error message
 ```
 
 ### Test 3: Try to Bypass (Should Fail)
 ```bash
-SKIP_DOCKER=true agent-flow run "test task"
+SKIP_DOCKER=true flow dev "test task"
 # Should still check Docker and exit with error
 ```
 
@@ -131,7 +131,7 @@ If you were using `SKIP_DOCKER=true`:
 1. Install Docker Desktop
 2. Start Docker
 3. Remove `SKIP_DOCKER=true` from your commands
-4. Run normally: `agent-flow run "your task"`
+4. Run normally: `flow dev "your task"`
 
 That's it! Docker will handle the isolation automatically.
 

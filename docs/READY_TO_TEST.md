@@ -70,7 +70,7 @@ DOCKER VM
 
 ```bash
 cd ~/repos/test-flow  # Or your test project
-flow run "Build a simple calculator with add and subtract"
+flow dev "Build a simple calculator with add and subtract"
 ```
 
 ## What to Watch For

@@ -32,12 +32,13 @@ multi-agent-flow/                # The npm package
     └── ... (7 agent prompts)
 ```
 
-**User Project Structure** (created by `agent-flow init`):
+**User Project Structure** (created by `flow init`):
 ```
 my-app/                          # User's project directory
-├── agent-flow.config.mjs       # User configuration
-├── .agent-flow/                # Runtime state (gitignored)
-│   ├── logs/                   # Structured execution logs
+├── .flow/                       # Runtime state (gitignored)
+│   ├── flow.config.mjs         # User configuration
+│   ├── prompts/                 # Agent prompts
+│   ├── traces/                  # Structured execution logs
 │   └── checkpoints/            # State for resume capability
 ├── project/                     # Agent workspace - READ/WRITE
 │   ├── src/                    # Generated source code
@@ -64,7 +65,7 @@ The `./project` directory contains all source code being written. Agents see it 
 
 ## 2. Terminology & Conventions
 
-- **AGENT_SEQUENCE**: A defined order of agents (e.g., "Development", "Design") in `agent-flow.config.mjs`.
+- **FLOW**: A defined order of agents (e.g., "development", "testing") in `.flow/flow.config.mjs`.
 - **FLOW_RUN**: A single pass through the entire AGENT_SEQUENCE.
 - **MAX_FLOW_RUNS**: Max times the flow can restart/loop back upon failure.
 - **AGENT_TURN**: A single request/response cycle with the LLM.
@@ -80,7 +81,7 @@ The `./project` directory contains all source code being written. Agents see it 
 
 ## 3. Configuration System
 
-The system is driven by `agent-flow.config.mjs` in the user's project root.
+The system is driven by `.flow/flow.config.mjs` in the user's project root.
 
 ### Structure
 ```mjs
@@ -95,7 +96,7 @@ The system is driven by `agent-flow.config.mjs` in the user's project root.
     // Settings for saving state
     persistence: {
         checkpoint_interval: "every_turn", // or "on_mode_complete" | "forever"
-        log_dir: "./.agent-flow/logs"
+        traces_dir: "./.flow/traces"
     },
     sequences: {
         development: {
@@ -290,14 +291,15 @@ The host runs 3 distinct MCP Servers.
 - **Tools**: `wget` (simple fetch), `httpie` (complex requests).
 
 ### State Persistence
-- **Checkpoints**: The system saves the state (current turn, chat history, file snapshot) to `./.agent-flow/checkpoints/` after every turn.
-- **Resume**: `agent-flow resume <run-id>` allows picking up after a crash or user interruption.
+- **Checkpoints**: The system saves the state (current turn, chat history, file snapshot) to `./.flow/checkpoints/` after every turn.
+- **Resume**: `flow resume <run-id>` allows picking up after a crash or user interruption.
 
 ### CLI Interface
-- `agent-flow init`: Scaffolds config and directories.
-- `agent-flow run "feature description"`: Starts the flow.
-- `agent-flow resume`: Resumes last session.
-- `agent-flow mode <MODE>`: Debug a specific agent in isolation.
+- `flow init`: Scaffolds config and directories.
+- `flow dev "feature description"`: Starts the development flow.
+- `flow test "fix tests"`: Starts the testing flow (no new code).
+- `flow resume`: Resumes last session.
+- `flow mode <MODE>`: Debug a specific agent in isolation.
 
 ---
 
@@ -345,7 +347,7 @@ npm install -g multi-agent-flow
 ```bash
 mkdir my-app
 cd my-app
-agent-flow init
+flow init
 ```
 
 **Add API key:**
@@ -355,7 +357,7 @@ echo "OPENAI_API_KEY=sk-..." > .env
 
 **Run:**
 ```bash
-agent-flow run "Build a calculator CLI"
+flow dev "Build a calculator CLI"
 ```
 
 ### For Developers

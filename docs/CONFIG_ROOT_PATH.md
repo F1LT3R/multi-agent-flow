@@ -1,6 +1,6 @@
 # Config: Root Path Feature
 
-**Date**: 2025-11-28  
+**Date**: 2025-11-28
 **Status**: ✅ Implemented
 
 ## Overview
@@ -45,11 +45,11 @@ export const paths = {
 ```bash
 # Frontend flow
 cd packages/frontend
-flow run "Add user auth"
+flow dev "Add user auth"
 
-# Backend flow  
+# Backend flow
 cd packages/backend
-flow run "Add API endpoints"
+flow dev "Add API endpoints"
 ```
 
 Each can have its own `flow.config.mjs` with different `paths.root` values.
@@ -177,7 +177,7 @@ if (module.default) {
 The `paths.root` value should be used by:
 
 1. **Agents**: When instructed to write code, use `paths.root` as the base directory
-2. **MCP Tools**: File operations should respect `paths.root` 
+2. **MCP Tools**: File operations should respect `paths.root`
 3. **Documentation**: Agent prompts should reference `paths.root` when describing where code goes
 
 Currently, agents write to the workspace root (`process.cwd()`). In a future update, we can pass `config.paths.root` to agents so they write to the configured location.

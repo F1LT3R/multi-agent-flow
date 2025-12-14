@@ -60,7 +60,7 @@ Enhanced all agent templates to implement "files as memory" approach, creating a
 ### Scenario 1: Failed Run, Then Retry (Learning Loop)
 ```bash
 # Run 1
-agent-flow run "Build calculator"
+flow dev "Build calculator"
 # Fails: division by zero not handled
 # REPORT writes:
 #   Status: Failed
@@ -69,7 +69,7 @@ agent-flow run "Build calculator"
 #   Suggested Fixes: Add validation
 
 # Run 2 (retry same task)
-agent-flow run "Build calculator"
+flow dev "Build calculator"
 # WRITE_USER_STORIES:
 #   - Reads report, sees Status=Failed, Original Task matches
 #   - Adds error handling requirements to user stories
@@ -85,7 +85,7 @@ agent-flow run "Build calculator"
 ### Scenario 2: Success, Then New Task (No Pollution)
 ```bash
 # Run 1
-agent-flow run "Build calculator"
+flow dev "Build calculator"
 # Succeeds
 # REPORT writes:
 #   Status: Success
@@ -93,7 +93,7 @@ agent-flow run "Build calculator"
 #   Report Context: "COMPLETED feature, ignore if different task"
 
 # Run 2 (different task)
-agent-flow run "Build todo app"
+flow dev "Build todo app"
 # WRITE_USER_STORIES:
 #   - Reads report, sees Status=Success
 #   - Compares: "calculator" vs "todo app" → DIFFERENT
@@ -107,13 +107,13 @@ agent-flow run "Build todo app"
 ### Scenario 3: Success, Then Iteration (Enhancement)
 ```bash
 # Run 1
-agent-flow run "Build calculator"
+flow dev "Build calculator"
 # Succeeds
 # REPORT writes:
 #   Next Iteration Focus: "Add scientific operations"
 
 # Run 2 (extending same feature)
-agent-flow run "Add scientific functions to calculator"
+flow dev "Add scientific functions to calculator"
 # WRITE_USER_STORIES:
 #   - Reads report, sees Status=Success
 #   - Compares: "calculator" in both → SAME feature

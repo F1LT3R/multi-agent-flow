@@ -19,7 +19,7 @@ Successfully standardized all dated files in the system to use `YYYY-MM-DD_HH-MM
 **File**: `agent/core/trace-recorder.mjs`
 - **Old format**: `2025-11-27-07-36-35-WRITE_USER_STORIES-r1-t1.md` (all hyphens)
 - **New format**: `2025-11-27_07-36-35_WRITE_USER_STORIES_r1-t1.md` (underscores separate components)
-- **Implementation**: 
+- **Implementation**:
 ```javascript
 const datePart = [
     now.getFullYear(),
@@ -93,7 +93,7 @@ mkdir test-014
 cd test-014
 flow init
 echo "OPENAI_API_KEY=..." > .env
-flow run "create a simple hello world app"
+flow dev "create a simple hello world app"
 ```
 
 Expected file structure:
