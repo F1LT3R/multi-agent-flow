@@ -540,4 +540,54 @@ export class Ratchet {
 
 		return operations
 	}
+
+	/**
+	 * Find test files that exist in ratchet but were deleted from project
+	 * @returns {Promise<Array<{file: string, relativePath: string}>>}
+	 */
+	async findDeletedTests() {
+		const deleted = []
+
+		try {
+			await fs.access(this.testsRatchet)
+		} catch {
+			return deleted // No ratchet dir yet
+		}
+
+		const ratchetTests = await this._getFiles(this.testsRatchet, '.test.mjs')
+
+		for (const file of ratchetTests) {
+			const relativePath = path.relative(this.testsRatchet, file)
+			const projectPath = path.join(this.projectRoot, relativePath)
+
+			try {
+				await fs.access(projectPath)
+			} catch {
+				// File doesn't exist in project - it was deleted
+				deleted.push({ file, relativePath })
+			}
+		}
+
+		return deleted
+	}
+
+	/**
+	 * Delete specified test files from the ratchet directory
+	 * @param {Array<{file: string, relativePath: string}>} files - Files to delete
+	 * @returns {Promise<number>} Number of files deleted
+	 */
+	async deleteRatchetedTests(files) {
+		let count = 0
+
+		for (const { file } of files) {
+			try {
+				await fs.unlink(file)
+				count++
+			} catch (error) {
+				console.error(`[Ratchet] Failed to delete ${file}: ${error.message}`)
+			}
+		}
+
+		return count
+	}
 }

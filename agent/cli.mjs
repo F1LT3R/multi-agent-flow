@@ -621,9 +621,10 @@ ratchetCmd
 	.command('tests')
 	.description('Ratchet changed tests (requires tests to pass)')
 	.option('--dry-run', 'Show what would be ratcheted without doing it')
-	.option('--force', 'Ratchet even if tests fail')
+	.option('--force', 'Ratchet even if tests fail, auto-delete orphans')
 	.action(async (options) => {
 		const { Ratchet } = await import('./core/ratchet.mjs')
+		const readline = await import('readline')
 
 		console.log(chalk.blue.bold('🔒 Ratchet Tests\n'))
 
@@ -633,19 +634,30 @@ ratchetCmd
 			// Step 1: Find changed tests
 			const spinner = ora('Finding changed tests...').start()
 			const changed = await ratchet.findChangedTests()
+			const deleted = await ratchet.findDeletedTests()
 
-			if (changed.length === 0) {
+			if (changed.length === 0 && deleted.length === 0) {
 				spinner.succeed('No test changes to ratchet')
 				return
 			}
 
-			spinner.succeed(`Found ${changed.length} changed test(s)`)
+			spinner.succeed(`Found ${changed.length} changed, ${deleted.length} deleted test(s)`)
 
 			// Display what will be ratcheted
-			console.log('')
-			for (const { relativePath, isNew } of changed) {
-				const tag = isNew ? chalk.green('[new]') : chalk.yellow('[mod]')
-				console.log(`  ${tag} ${relativePath}`)
+			if (changed.length > 0) {
+				console.log('')
+				for (const { relativePath, isNew } of changed) {
+					const tag = isNew ? chalk.green('[new]') : chalk.yellow('[mod]')
+					console.log(`  ${tag} ${relativePath}`)
+				}
+			}
+
+			// Display deleted tests
+			if (deleted.length > 0) {
+				console.log('')
+				for (const { relativePath } of deleted) {
+					console.log(`  ${chalk.red('[del]')} ${relativePath}`)
+				}
 			}
 			console.log('')
 
@@ -655,8 +667,8 @@ ratchetCmd
 				return
 			}
 
-			// Step 2: Run tests (unless --force)
-			if (!options.force) {
+			// Step 2: Run tests (unless --force) - only if there are tests to run
+			if (changed.length > 0 && !options.force) {
 				const testSpinner = ora('Running tests...').start()
 				const testResult = await ratchet.runTests()
 
@@ -668,16 +680,76 @@ ratchetCmd
 				}
 
 				testSpinner.succeed('Tests passed')
-			} else {
+			} else if (changed.length > 0) {
 				console.log(chalk.yellow('⚠️  Skipping tests (--force)'))
 			}
 
 			// Step 3: Ratchet the changed tests
-			const ratchetSpinner = ora('Ratcheting tests...').start()
-			const operations = await ratchet.ratchetChangedTests(changed)
-			ratchetSpinner.succeed(`Ratcheted ${operations.length} test(s)`)
+			let ratchetedCount = 0
+			if (changed.length > 0) {
+				const ratchetSpinner = ora('Ratcheting tests...').start()
+				const operations = await ratchet.ratchetChangedTests(changed)
+				ratchetSpinner.succeed(`Ratcheted ${operations.length} test(s)`)
+				ratchetedCount = operations.length
+			}
 
-			console.log(chalk.green.bold(`\n✅ Done. ${operations.length} tests ratcheted.\n`))
+			// Step 4: Handle deleted tests
+			let deletedCount = 0
+			if (deleted.length > 0) {
+				const toDelete = []
+
+				if (options.force) {
+					// Auto-delete all in force mode
+					toDelete.push(...deleted)
+				} else {
+					// Interactive prompts for each deleted file
+					const rl = readline.createInterface({
+						input: process.stdin,
+						output: process.stdout,
+					})
+
+					const ask = (question) => new Promise((resolve) => rl.question(question, resolve))
+
+					let skipAll = false
+					let acceptAll = false
+
+					for (const file of deleted) {
+						if (skipAll) break
+						if (acceptAll) {
+							toDelete.push(file)
+							continue
+						}
+
+						const answer = await ask(
+							`\nRemove ${chalk.cyan(file.relativePath)} from ratchet? [${chalk.green('y')}es/${chalk.red('n')}o/${chalk.green('a')}ll/${chalk.yellow('s')}kip all]: `
+						)
+
+						const choice = answer.trim().toLowerCase()
+						if (choice === 'y' || choice === 'yes') {
+							toDelete.push(file)
+						} else if (choice === 'a' || choice === 'all') {
+							acceptAll = true
+							toDelete.push(file)
+						} else if (choice === 's' || choice === 'skip') {
+							skipAll = true
+						}
+						// 'n' or anything else = skip this file
+					}
+
+					rl.close()
+				}
+
+				if (toDelete.length > 0) {
+					deletedCount = await ratchet.deleteRatchetedTests(toDelete)
+					console.log(chalk.gray(`\n  Removed ${deletedCount} orphaned test(s) from ratchet`))
+				}
+			}
+
+			// Summary
+			const parts = []
+			if (ratchetedCount > 0) parts.push(`${ratchetedCount} ratcheted`)
+			if (deletedCount > 0) parts.push(`${deletedCount} removed`)
+			console.log(chalk.green.bold(`\n✅ Done. ${parts.join(', ')}.\n`))
 		} catch (error) {
 			console.error(chalk.red('\n❌ Ratchet failed:'), error.message)
 			process.exit(1)
