@@ -229,14 +229,6 @@ program
 		const runner = new FlowRunner(config, flowName)
 			const result = await runner.run(description)
 
-		// Display summary
-		console.log(chalk.cyan.bold('\n╔' + '═'.repeat(58) + '╗'))
-		console.log(chalk.cyan.bold('║') + chalk.white.bold('  📊 Flow Summary') + ' '.repeat(40) + chalk.cyan.bold('║'))
-		console.log(chalk.cyan.bold('╚' + '═'.repeat(58) + '╝'))
-		console.log(`  ${result.success ? '✅' : '❌'} Status: ${result.success ? chalk.green.bold('SUCCESS') : chalk.red.bold('FAILED')}`)
-		console.log(`  🔄 Flow Runs: ${chalk.white.bold(result.flowRunCount)}`)
-		console.log(`  🤖 Agents Executed: ${chalk.white.bold(result.results.length)}`)
-
 		// Calculate detailed metrics by model
 		const { getCost } = await import('./data/model-pricing.mjs')
 		const pricingOverrides = config.pricing?.overrides || {}
@@ -291,29 +283,65 @@ program
 
 		const totalCost = totalInputCost + totalOutputCost
 
-		console.log(`  💬 Total Turns: ${chalk.white.bold(totalTurns)}`)
+		// Helper to strip ANSI codes for width calculation
+		const stripAnsi = (str) => str.replace(/\x1b\[[0-9;]*m/g, '')
+
+		// Helper to calculate visual width (emojis count as 2)
+		const visualWidth = (str) => {
+			const plain = stripAnsi(str)
+			let width = 0
+			for (const char of plain) {
+				// Emoji and wide characters take 2 spaces
+				const code = char.codePointAt(0)
+				if (code > 0x1F000 || (code >= 0x2600 && code <= 0x27BF)) {
+					width += 2
+				} else {
+					width += 1
+				}
+			}
+			return width
+		}
+
+		// Build all summary lines
+		const boxWidth = 58
+		const lines = []
+
+		lines.push(chalk.white.bold('  📊 Flow Summary'))
+		lines.push('')
+		lines.push(`  ${result.success ? '✅' : '❌'} Status: ${result.success ? chalk.green.bold('SUCCESS') : chalk.red.bold('FAILED')}`)
+		lines.push(`  🔄 Flow Runs: ${chalk.white.bold(result.flowRunCount)}`)
+		lines.push(`  🤖 Agents Executed: ${chalk.white.bold(result.results.length)}`)
+		lines.push(`  💬 Total Turns: ${chalk.white.bold(totalTurns)}`)
 
 		// Model breakdown
 		if (Object.keys(modelStats).length > 0) {
-			console.log(chalk.yellow.bold('\n  📈 By Model:'))
+			lines.push('')
+			lines.push(chalk.yellow.bold('  📈 By Model:'))
 			for (const [model, stats] of Object.entries(modelStats)) {
 				const modelTotalCost = stats.inputCost + stats.outputCost
-				console.log(chalk.cyan(`    🔹 ${model}`) + chalk.gray(` (${stats.agents} agent${stats.agents > 1 ? 's' : ''})`))
-				console.log(chalk.gray(`       📥 Tokens: `) + chalk.white(`${stats.promptTokens.toLocaleString()} in + ${stats.completionTokens.toLocaleString()} out`))
-				console.log(chalk.gray(`       💰 Cost: `) + chalk.green(`$${modelTotalCost.toFixed(4)}`))
-				console.log()
+				lines.push(chalk.cyan(`    ◆ ${model}`) + chalk.white(` (${stats.agents} agent${stats.agents > 1 ? 's' : ''})`))
+				lines.push(chalk.cyan(`       📥 Tokens: `) + chalk.white(`${stats.promptTokens.toLocaleString()} in + ${stats.completionTokens.toLocaleString()} out`))
+				lines.push(chalk.cyan(`       💰 Cost: `) + chalk.green(`$${modelTotalCost.toFixed(4)}`))
+				lines.push('')
 			}
 		}
 
-		console.log(chalk.gray('\n  ' + '─'.repeat(40)))
-		console.log(`  📊 ${chalk.white.bold('Total:')} ${chalk.cyan.bold(totalTokens.toLocaleString())} tokens, ${chalk.green.bold('$' + totalCost.toFixed(4))}`)
-		console.log(`  📉 ${chalk.gray('Average per Agent:')} ${chalk.green('$' + (totalCost / result.results.length).toFixed(4))}`)
+		lines.push(chalk.cyan('  ' + '─'.repeat(40)))
+		lines.push(`  📊 ${chalk.white.bold('Total:')} ${chalk.cyan.bold(totalTokens.toLocaleString())} tokens, ${chalk.green.bold('$' + totalCost.toFixed(4))}`)
+		lines.push(`  📉 ${chalk.white('Average per Agent:')} ${chalk.green('$' + (totalCost / result.results.length).toFixed(4))}`)
 
 		if (!result.success) {
-			console.log(chalk.red(`\n  ⚠️  Failure Reason: ${result.reason}`))
+			lines.push('')
+			lines.push(chalk.red(`  ⚠️  Failure Reason: ${result.reason}`))
 		}
 
-		console.log(chalk.cyan.bold('\n╚' + '═'.repeat(58) + '╝\n'))
+		// Display summary in a single box
+		console.log(chalk.cyan.bold('\n╔' + '═'.repeat(boxWidth) + '╗'))
+		for (const line of lines) {
+			const padding = boxWidth - visualWidth(line)
+			console.log(chalk.cyan.bold('║') + line + ' '.repeat(Math.max(0, padding)) + chalk.cyan.bold('║'))
+		}
+		console.log(chalk.cyan.bold('╚' + '═'.repeat(boxWidth) + '╝\n'))
 
 		} catch (error) {
 			console.error(chalk.red('\n❌ Flow failed:'), error.message)
