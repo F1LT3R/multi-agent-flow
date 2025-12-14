@@ -283,9 +283,7 @@ async execStreaming(command, options = {}) {
 
 				if (options.onStderr) {
 					for (const line of lines) {
-						if (line.trim()) {
-							options.onStderr(line)
-						}
+						options.onStderr(line)
 					}
 				}
 				callback()

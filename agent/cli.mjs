@@ -10,6 +10,7 @@ import TerminalRenderer from 'marked-terminal'
 import { ConfigLoader } from './core/config-loader.mjs'
 import { FlowRunner } from './core/flow-runner.mjs'
 import { CheckpointManager } from './core/checkpoint-manager.mjs'
+import { DockerManager } from './core/docker-manager.mjs'
 // AgentExecutor, MCPClient, Ratchet, and HTTP MCP servers removed
 // Tools now run directly inside Docker VM for security
 
@@ -19,6 +20,51 @@ program
 	.name('flow')
 	.description('Multi-Agent Flow - AI agent orchestration system')
 	.version('0.1.0')
+
+/**
+ * Prompt user to clear working context after successful flow
+ * Auto-clears in non-interactive mode
+ */
+async function promptClearContext() {
+	const contextDir = path.join(process.cwd(), '.flow/context')
+
+	// Check if context exists
+	try {
+		await fs.access(contextDir)
+	} catch {
+		return // No context to clear
+	}
+
+	// Auto-clear in non-interactive mode
+	if (process.env.AUTO_APPROVE === 'true') {
+		await fs.rm(contextDir, { recursive: true, force: true })
+		console.log(chalk.green('✓ Context cleared (auto-approve mode)'))
+		return
+	}
+
+	// Prompt user
+	const readline = await import('readline')
+	const rl = readline.createInterface({
+		input: process.stdin,
+		output: process.stdout,
+	})
+
+	return new Promise((resolve) => {
+		rl.question(
+			'Clear working context? (y/n): ',
+			async (answer) => {
+				rl.close()
+				if (answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes') {
+					await fs.rm(contextDir, { recursive: true, force: true })
+					console.log(chalk.green('✓ Context cleared'))
+				} else {
+					console.log(chalk.gray('Context preserved in .flow/context/'))
+				}
+				resolve()
+			}
+		)
+	})
+}
 
 /**
  * Execute a flow by name
@@ -199,12 +245,69 @@ async function runFlow(flowName, description, options) {
 		}
 		console.log(chalk.cyan.bold('╚' + '═'.repeat(boxWidth) + '╝\n'))
 
+		// Prompt to clear context after successful run
+		if (result.success) {
+			await promptClearContext()
+		}
+
 	} catch (error) {
 		console.error(chalk.red('\n❌ Flow failed:'), error.message)
 		console.error(error.stack)
 		process.exit(1)
 	}
 }
+
+/**
+ * Build the colorized "Flows:" help section
+ */
+function buildFlowsHelpSection(flows) {
+	const lines = []
+
+	lines.push('')
+	lines.push(chalk.magenta.bold('Flows:'))
+
+	// Calculate column widths for alignment
+	let maxNameWidth = 0
+	for (const [flowName, flowConfig] of Object.entries(flows || {})) {
+		const aliases = flowConfig.aliases || []
+		const nameWithAliases = aliases.length > 0
+			? `${flowName}`
+			: flowName
+		maxNameWidth = Math.max(maxNameWidth, nameWithAliases.length)
+	}
+
+	// Pad to at least 20 chars for visual consistency
+	maxNameWidth = Math.max(maxNameWidth, 12)
+
+	for (const [flowName, flowConfig] of Object.entries(flows || {})) {
+		const aliases = flowConfig.aliases || []
+		const description = flowConfig.description || `Run the ${flowName} flow`
+
+		// Build the line with colors
+		let namePart = chalk.cyan.bold(flowName)
+		if (aliases.length > 0) {
+			namePart += chalk.gray(' | ') + chalk.yellow(aliases.join(chalk.gray(', ')))
+		}
+
+		// Calculate padding (accounting for color codes)
+		const plainName = aliases.length > 0
+			? `${flowName} | ${aliases.join(', ')}`
+			: flowName
+		const padding = ' '.repeat(Math.max(2, maxNameWidth + 8 - plainName.length))
+
+		lines.push(`  ${namePart}${padding}${chalk.white(description)}`)
+	}
+
+	lines.push('')
+	lines.push(chalk.gray('  Run a flow: ') + chalk.white('flow <flow-name> "<description>"'))
+	lines.push(chalk.gray('  Example:    ') + chalk.cyan('flow dev "Add user authentication"'))
+	lines.push('')
+
+	return lines.join('\n')
+}
+
+// Track which commands are flow commands (to hide from Commands section)
+const flowCommandNames = new Set()
 
 /**
  * Dynamically register CLI commands for each flow in config
@@ -231,6 +334,21 @@ async function registerFlowCommands() {
 			},
 		}
 	}
+
+	// Track flow command names for help filtering
+	for (const flowName of Object.keys(config.flows || {})) {
+		flowCommandNames.add(flowName)
+	}
+
+	// Configure help to filter out flow commands from Commands section
+	program.configureHelp({
+		visibleCommands: (cmd) => {
+			return cmd.commands.filter(c => !flowCommandNames.has(c.name()))
+		}
+	})
+
+	// Add custom "Flows:" section to help output
+	program.addHelpText('after', buildFlowsHelpSection(config.flows))
 
 	// Register each flow as a command
 	for (const [flowName, flowConfig] of Object.entries(config.flows || {})) {
@@ -764,6 +882,25 @@ ratchetCmd
 			console.log(chalk.green.bold(`\n✅ Done. ${parts.join(', ')}.\n`))
 		} catch (error) {
 			console.error(chalk.red('\n❌ Ratchet failed:'), error.message)
+			process.exit(1)
+		}
+	})
+
+/**
+ * Rebuild command - Force rebuild the Docker image
+ */
+program
+	.command('rebuild')
+	.description('Force rebuild the Docker image')
+	.action(async () => {
+		console.log(chalk.blue.bold('🔨 Rebuilding Docker image...\n'))
+
+		try {
+			const dockerManager = new DockerManager({})
+			await dockerManager.buildImage()
+			console.log(chalk.green('\n✓ Docker image rebuilt successfully\n'))
+		} catch (error) {
+			console.error(chalk.red('Failed to rebuild Docker image:'), error.message)
 			process.exit(1)
 		}
 	})

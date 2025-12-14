@@ -195,8 +195,7 @@ export class FlowRunner {
 					console.error(chalk.gray('Continuing without snapshot...'))
 				}
 
-				// Ask user if they want to clear the working context
-				await this._askClearContext()
+				// Context clearing is handled by cli.mjs after displaying the summary
 
 				return {
 					success: true,

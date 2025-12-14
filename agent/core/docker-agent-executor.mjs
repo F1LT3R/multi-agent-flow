@@ -54,39 +54,56 @@ export class DockerAgentExecutor {
 			})
 		})
 
+		// Accumulate output into buffers for proper markdown rendering
+		let agentOutput = ''
+		const statusLines = []
+
 		const output = await this.dockerManager.execStreaming(
 			`node ${scriptPath}`,
 			{
 			onStderr: (line) => {
-				// Stream stderr to console in real-time with formatting
-				if (line.startsWith('[Turn')) {
-					console.log(chalk.cyan(`\n▶ ${line}`))
-				} else if (line.startsWith('🔧')) {
-					console.log(chalk.gray(line))
-				} else if (line.startsWith('✓')) {
-					console.log(chalk.gray(line))
-				} else if (line.startsWith('✗')) {
-					console.log(chalk.red(line))
-				} else if (line.startsWith('📊')) {
-					console.log(chalk.gray(line))
-				} else if (line.startsWith('💰')) {
-					console.log(chalk.yellow(line))
-				} else if (line.startsWith('--- Test Output ---') || line === '---') {
-					// Test output delimiters - show as-is
-					console.log(chalk.gray(line))
-				} else {
-					// Agent thinking text - render as markdown
-					try {
-						const rendered = marked.parseInline(line)
-						process.stdout.write(rendered + '\n')
-					} catch (err) {
-						// If markdown parsing fails, show plain text
-						process.stdout.write(chalk.gray(line + '\n'))
+				// Classify line as status or agent output
+				if (line.startsWith('[Turn') ||
+					line.startsWith('🔧') ||
+					line.startsWith('✓') ||
+					line.startsWith('✗') ||
+					line.startsWith('📊') ||
+					line.startsWith('💰') ||
+					line.startsWith('--- Test Output ---') ||
+					line === '---' ||
+					line.startsWith('[Templating]') ||
+					line.startsWith('[Constraints]')) {
+					// Status line - store with type for later rendering
+					statusLines.push(line)
+
+					// Render any accumulated agent output before status
+					if (agentOutput.trim()) {
+						console.log(marked(agentOutput))
+						agentOutput = ''
 					}
+
+					// Display status line immediately with appropriate styling
+					if (line.startsWith('[Turn')) {
+						console.log(chalk.cyan(`\n▶ ${line}`))
+					} else if (line.startsWith('✗')) {
+						console.log(chalk.red(line))
+					} else if (line.startsWith('💰')) {
+						console.log(chalk.yellow(line))
+					} else {
+						console.log(chalk.gray(line))
+					}
+				} else {
+					// Agent thinking/markdown content - accumulate
+					agentOutput += line + '\n'
 				}
 			}
 			}
 		)
+
+		// Render any remaining agent output as markdown block
+		if (agentOutput.trim()) {
+			console.log(marked(agentOutput))
+		}
 
 		// Log raw output for debugging
 		if (!output.trim().startsWith('{')) {
@@ -454,13 +471,10 @@ async function main() {
 						// Log tool success to stderr
 						console.error('✓ ' + toolCall.name + ' completed')
 
-						// For test execution, log the output
-						if (toolCall.name === 'run_node_tests' && result.stdout) {
+						// For test execution, log the colored output (stderr has colors for humans)
+						if (toolCall.name === 'run_node_tests' && result.stderr) {
 							console.error('\\n--- Test Output ---')
-							console.error(result.stdout)
-							if (result.stderr) {
-								console.error(result.stderr)
-							}
+							console.error(result.stderr)
 							console.error('---\\n')
 						}
 
