@@ -119,12 +119,12 @@ export async function write_file({ path: filePath, content }, fileConstraints = 
 	// Check file constraints BEFORE path validation
 	if (fileConstraints) {
 		const { write_patterns, exclude_patterns } = fileConstraints
-		
+
 		// If write_patterns is empty, agent is read-only
 		if (write_patterns && write_patterns.length === 0) {
 			throw new Error(`Agent is read-only and cannot write files`)
 		}
-		
+
 		// Check if file matches allowed patterns
 		if (write_patterns && write_patterns.length > 0) {
 			const matchesInclude = write_patterns.some(p => minimatch(filePath, p))
@@ -132,7 +132,7 @@ export async function write_file({ path: filePath, content }, fileConstraints = 
 				throw new Error(`Agent cannot write "${filePath}" - allowed patterns: ${write_patterns.join(', ')}`)
 			}
 		}
-		
+
 		// Check if file matches excluded patterns
 		if (exclude_patterns && exclude_patterns.length > 0) {
 			const matchesExclude = exclude_patterns.some(p => minimatch(filePath, p))
@@ -141,7 +141,7 @@ export async function write_file({ path: filePath, content }, fileConstraints = 
 			}
 		}
 	}
-	
+
 	const resolvedPath = await validatePath(filePath, true)
 	await fs.mkdir(path.dirname(resolvedPath), { recursive: true })
 
@@ -262,7 +262,7 @@ export const TOOL_DEFINITIONS = [
 		inputSchema: {
 			type: 'object',
 			properties: {
-				path: { type: 'string', description: 'Path to directory: "." for project root, "lib" for subdirectory', default: '.' },
+				path: { type: 'string', description: 'Path to directory: "." for project root, "dirname" for subdirectory', default: '.' },
 			},
 		},
 	},

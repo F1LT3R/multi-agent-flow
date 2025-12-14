@@ -153,7 +153,7 @@ export default {
 				temperature: 0.5,  // Balanced for clear documentation with varied presentation
 			},
 			mcp_tools: {
-				include: ['list_directory', 'read_file'],  // Read-only
+				include: ['list_directory', 'read_file', 'run_node_tests'],  // Read + verify tests
 			},
 			file_constraints: {
 				write_patterns: [],  // Read-only

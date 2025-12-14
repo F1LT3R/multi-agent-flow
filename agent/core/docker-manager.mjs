@@ -254,7 +254,7 @@ async execStreaming(command, options = {}) {
 	}
 
 	const exec = await this.container.exec({
-		Cmd: ['sh', '-c', command],
+		Cmd: ['sh', '-c', `FORCE_COLOR=1 ${command}`],
 		AttachStdout: true,
 		AttachStderr: true,
 	})
