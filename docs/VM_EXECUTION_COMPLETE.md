@@ -173,10 +173,10 @@ Before deploying to production:
 ## Maintenance
 
 ### To Update Agent Code
-When modifying `ai-providers/` or `core/` modules:
+When modifying `ai-providers/`, `core/`, `data/`, or `vm-tools/` modules:
 1. Changes are automatically picked up on next Docker image rebuild
 2. Docker image rebuilds when not found
-3. Force rebuild: `docker rmi multi-flow-agent`
+3. Force rebuild: `docker rmi multi-agent-flow-agent`
 
 ### To Debug VM Execution
 View container logs:

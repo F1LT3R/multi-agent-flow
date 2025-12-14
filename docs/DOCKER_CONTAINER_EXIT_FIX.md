@@ -97,11 +97,17 @@ The container now:
 
 ## Rebuilding the Image
 
-After making changes to `agent/docker/mcp-client.mjs`, rebuild:
+After making changes to agent code, rebuild:
 
 ```bash
 cd /Users/user/repos/multi-agent-flow
-docker build --build-arg UID=$(id -u) --build-arg GID=$(id -g) -t multi-agent-flow-agent agent/docker/
+docker build --build-arg UID=$(id -u) --build-arg GID=$(id -g) -f agent/docker/Dockerfile -t multi-agent-flow-agent agent/
+```
+
+Or simply delete the image and let it auto-rebuild on next `flow run`:
+
+```bash
+docker rmi multi-agent-flow-agent
 ```
 
 ## Testing
