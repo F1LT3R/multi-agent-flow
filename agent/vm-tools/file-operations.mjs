@@ -40,8 +40,9 @@ async function isReadOnly(filePath) {
 /**
  * Validate and resolve path with security checks
  * SECURITY: Prevents path traversal attacks, symlink escapes, and blocks protected directories
+ * Exported for use by other VM tools (test-runner, analysis)
  */
-async function validatePath(relativePath, isWriteOperation = false) {
+export async function validatePath(relativePath, isWriteOperation = false) {
 	// CRITICAL: Block absolute paths
 	if (relativePath.startsWith('/')) {
 		throw new Error(`Absolute paths not allowed: ${relativePath}`)

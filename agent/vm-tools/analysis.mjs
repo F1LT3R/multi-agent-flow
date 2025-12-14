@@ -7,6 +7,7 @@ import { exec } from 'child_process'
 import { promisify } from 'util'
 import path from 'path'
 import fs from 'fs/promises'
+import { validatePath } from './file-operations.mjs'
 
 const execAsync = promisify(exec)
 
@@ -18,6 +19,9 @@ const PROJECT_ROOT = '/project'
  */
 export async function lint_code({ path: targetPath = '.' }) {
 	try {
+		// Validate path before use - blocks .flow/, absolute paths, and traversal
+		await validatePath(targetPath, false)
+
 		// Try to use project's eslint if available
 		const { stdout, stderr } = await execAsync(
 			`cd "${PROJECT_ROOT}" && npx eslint ${targetPath} --format json 2>&1 || true`,
@@ -51,11 +55,13 @@ export async function lint_code({ path: targetPath = '.' }) {
  */
 export async function check_style({ path: filePath }) {
 	try {
+		// Validate path before use - blocks .flow/, absolute paths, and traversal
+		const resolvedPath = await validatePath(filePath, false)
+
 		// Try to use project's prettier if available
 		const prettier = await import('prettier')
 
-		const fullPath = path.join(PROJECT_ROOT, filePath)
-		const content = await fs.readFile(fullPath, 'utf-8')
+		const content = await fs.readFile(resolvedPath, 'utf-8')
 
 		// Look for prettier config
 		const configPath = await prettier.resolveConfigFile(PROJECT_ROOT)
@@ -70,7 +76,7 @@ export async function check_style({ path: filePath }) {
 		const config = await prettier.resolveConfig(configPath)
 
 		// Check if file should be formatted
-		const fileInfo = await prettier.getFileInfo(fullPath, {
+		const fileInfo = await prettier.getFileInfo(resolvedPath, {
 			ignorePath: path.join(PROJECT_ROOT, '.prettierignore'),
 		})
 
@@ -91,7 +97,7 @@ export async function check_style({ path: filePath }) {
 		// Check if file is formatted
 		const isFormatted = await prettier.check(content, {
 			...config,
-			filepath: fullPath,
+			filepath: resolvedPath,
 		})
 
 		if (isFormatted) {
@@ -103,7 +109,7 @@ export async function check_style({ path: filePath }) {
 			// Get formatted version to show diff info
 			const formatted = await prettier.format(content, {
 				...config,
-				filepath: fullPath,
+				filepath: resolvedPath,
 			})
 
 			return {

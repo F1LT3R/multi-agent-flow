@@ -5,6 +5,7 @@
  */
 import { exec } from 'child_process'
 import { promisify } from 'util'
+import { validatePath } from './file-operations.mjs'
 
 const execAsync = promisify(exec)
 
@@ -13,11 +14,12 @@ const PROJECT_ROOT = '/project'
 
 /**
  * Find test files matching a pattern
+ * Excludes .flow/ and node_modules/ directories
  */
 async function findTestFiles(pattern) {
 	try {
 		const { stdout } = await execAsync(
-			`cd "${PROJECT_ROOT}" && find . -name "*.test.mjs" -o -name "*.test.js" 2>/dev/null | head -20`,
+			`cd "${PROJECT_ROOT}" && find . -type d \\( -name .flow -o -name node_modules \\) -prune -o -type f \\( -name "*.test.mjs" -o -name "*.test.js" \\) -print 2>/dev/null | head -20`,
 			{ maxBuffer: 1024 * 1024 }
 		)
 		return stdout.trim().split('\n').filter(f => f.length > 0)
@@ -27,9 +29,25 @@ async function findTestFiles(pattern) {
 }
 
 /**
+ * Check if a pattern tries to access protected directories
+ */
+function isProtectedPath(pattern) {
+	const normalized = pattern.replace(/^\.\//, '')
+	return normalized.startsWith('.flow/') || normalized.startsWith('.flow') ||
+	       normalized.includes('/.flow/') || normalized.includes('/.flow') ||
+	       normalized.startsWith('node_modules/') || normalized.includes('/node_modules/')
+}
+
+/**
  * Check if a glob pattern matches any files
+ * Rejects patterns that try to access .flow/ or node_modules/
  */
 async function patternMatchesFiles(pattern) {
+	// Block patterns targeting protected directories
+	if (isProtectedPath(pattern)) {
+		return false
+	}
+
 	try {
 		// Use ls with the pattern to check if files exist
 		const { stdout } = await execAsync(
@@ -49,6 +67,16 @@ async function patternMatchesFiles(pattern) {
 export async function run_node_tests({ pattern, test_file } = {}) {
 	try {
 		let testTarget = pattern || test_file
+
+		// Block access to protected directories
+		if (testTarget && isProtectedPath(testTarget)) {
+			return {
+				success: false,
+				stdout: '',
+				stderr: `Access to protected directory not allowed: ${testTarget}`,
+				error: `Cannot run tests from .flow/ or node_modules/ directories`,
+			}
+		}
 
 		// If a pattern/file was provided, check if it exists
 		if (testTarget) {
@@ -115,6 +143,9 @@ export async function run_node_tests({ pattern, test_file } = {}) {
  */
 export async function run_puppeteer({ testFile }) {
 	try {
+		// Validate path before use - blocks .flow/, absolute paths, and traversal
+		await validatePath(testFile, false)
+
 		// Run with NODE_PATH to find pre-installed puppeteer
 		// PUPPETEER_EXECUTABLE_PATH is set in the Docker image to use system chromium
 		const { stdout, stderr } = await execAsync(
