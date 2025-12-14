@@ -189,8 +189,12 @@ function formatFileConstraints(constraints) {
 	} else {
 		lines.push('You CANNOT write any files (read-only agent).')
 	}
-	if (constraints.exclude_patterns && constraints.exclude_patterns.length > 0) {
-		lines.push('You CANNOT write files matching: ' + constraints.exclude_patterns.join(', '))
+	if (constraints.exclusions && constraints.exclusions.length > 0) {
+		lines.push('')
+		lines.push('## Exclusions')
+		for (const exclusion of constraints.exclusions) {
+			lines.push('- ' + exclusion.patterns.join(', ') + ': ' + exclusion.message)
+		}
 	}
 	return lines.join('\\n')
 }

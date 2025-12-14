@@ -119,7 +119,7 @@ export async function read_file({ path: filePath }) {
 export async function write_file({ path: filePath, content }, fileConstraints = null) {
 	// Check file constraints BEFORE path validation
 	if (fileConstraints) {
-		const { write_patterns, exclude_patterns } = fileConstraints
+		const { write_patterns, exclusions } = fileConstraints
 
 		// If write_patterns is empty, agent is read-only
 		if (write_patterns && write_patterns.length === 0) {
@@ -134,11 +134,13 @@ export async function write_file({ path: filePath, content }, fileConstraints = 
 			}
 		}
 
-		// Check if file matches excluded patterns
-		if (exclude_patterns && exclude_patterns.length > 0) {
-			const matchesExclude = exclude_patterns.some(p => minimatch(filePath, p))
-			if (matchesExclude) {
-				throw new Error(`Agent cannot write "${filePath}" - excluded by pattern: ${exclude_patterns.join(', ')}`)
+		// Check exclusions with custom messages
+		if (exclusions && exclusions.length > 0) {
+			for (const exclusion of exclusions) {
+				const matchesExclude = exclusion.patterns.some(p => minimatch(filePath, p))
+				if (matchesExclude) {
+					throw new Error(exclusion.message)
+				}
 			}
 		}
 	}

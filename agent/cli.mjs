@@ -30,6 +30,17 @@ async function runFlow(flowName, description, options) {
 		process.env.AUTO_APPROVE = 'true'
 	}
 
+	// Clear context if requested
+	if (options.clearContext) {
+		const contextDir = path.join(process.cwd(), '.flow/context')
+		try {
+			await fs.rm(contextDir, { recursive: true, force: true })
+			console.log(chalk.cyan('Context cleared. Starting fresh.\n'))
+		} catch {
+			// Directory may not exist, that's fine
+		}
+	}
+
 	console.log(chalk.blue.bold(`🤖 Starting Multi-Agent Flow: ${flowName}\n`))
 
 	try {
@@ -229,6 +240,7 @@ async function registerFlowCommands() {
 			.argument('<description>', 'What to build or fix')
 			.option('-y, --yes', 'Auto-approve all prompts (non-interactive)')
 			.option('--auto-approve', 'Alias for --yes')
+			.option('--clear-context', 'Clear working context before starting (fresh run)')
 			.action(async (description, options) => {
 				await runFlow(flowName, description, options)
 			})
@@ -785,6 +797,45 @@ program
 			console.log(chalk.yellow('\nTry manually:'))
 			console.log(chalk.gray('  lsof -ti:3100,3101,3102,3103 | xargs kill -9'))
 			console.log(chalk.gray('  or: pkill -f "mcp-server"\n'))
+		}
+	})
+
+/**
+ * Clear-context command - Clear the working context directory
+ */
+program
+	.command('clear-context')
+	.description('Clear the working context directory (.flow/context/)')
+	.action(async () => {
+		console.log(chalk.blue.bold('🧹 Clearing working context\n'))
+
+		const contextDir = path.join(process.cwd(), '.flow/context')
+
+		try {
+			// Check if context directory exists
+			await fs.access(contextDir)
+
+			// List files being deleted
+			const files = await fs.readdir(contextDir)
+			if (files.length === 0) {
+				console.log(chalk.yellow('Context directory is already empty'))
+				return
+			}
+
+			for (const file of files) {
+				console.log(chalk.gray(`  Removing: ${file}`))
+			}
+
+			// Remove the directory
+			await fs.rm(contextDir, { recursive: true, force: true })
+			console.log(chalk.green('\n✓ Context cleared\n'))
+		} catch (error) {
+			if (error.code === 'ENOENT') {
+				console.log(chalk.yellow('No context directory found (.flow/context/ does not exist)'))
+			} else {
+				console.error(chalk.red('Failed to clear context:'), error.message)
+				process.exit(1)
+			}
 		}
 	})
 

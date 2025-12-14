@@ -195,6 +195,9 @@ export class FlowRunner {
 					console.error(chalk.gray('Continuing without snapshot...'))
 				}
 
+				// Ask user if they want to clear the working context
+				await this._askClearContext()
+
 				return {
 					success: true,
 					flowRunCount: this.state.flowRunCount,
@@ -252,8 +255,8 @@ export class FlowRunner {
 			console.log(chalk.blue(`Goal: ${agentConfig.goal}`))
 			console.log(chalk.blue(`${'='.repeat(60)}\n`))
 
-		// Prepare input for agent
-		const agentInput = this._prepareAgentInput(agentName, i)
+		// Prepare input for agent (includes context injection)
+		const agentInput = await this._prepareAgentInput(agentName, i)
 
 		// Execute agent inside Docker VM for maximum isolation
 		// Tools now run directly inside the VM - no HTTP MCP servers needed!
@@ -273,6 +276,9 @@ export class FlowRunner {
 			result.agentName = agentName
 			result.tokenUsage = executor.getTokenUsage()
 			this.state.agentResults.push(result)
+
+			// Save agent output to context for cross-reflow/cross-run learning
+			await this._saveAgentContext(agentName, result.finalMessage)
 
 			// Save message history for potential reflow
 			this.state.messageHistories[agentName] = executor.getMessages()
@@ -308,8 +314,26 @@ export class FlowRunner {
 
 	/**
 	 * Prepare input for agent based on previous results
+	 * Injects context from previous agents based on context_injection config
 	 */
-	_prepareAgentInput(agentName, agentIndex) {
+	async _prepareAgentInput(agentName, agentIndex) {
+		const agentConfig = this.config.agents.find(a => a.name === agentName)
+		const injection = agentConfig?.context_injection || {}
+
+		// Build context prefix from injected agent outputs
+		let contextPrefix = ''
+		for (const [sourceAgent, shouldInject] of Object.entries(injection)) {
+			if (!shouldInject) continue
+
+			const content = await this._loadAgentContext(sourceAgent)
+			if (content) {
+				contextPrefix += `## ${sourceAgent} OUTPUT (from previous attempt)\n`
+				contextPrefix += `Use this to understand what happened and fix any issues.\n\n`
+				contextPrefix += content
+				contextPrefix += `\n---\n\n`
+			}
+		}
+
 		// First agent gets the original user input with injected stories
 		if (agentIndex === 0) {
 			let input = this.state.userInput
@@ -324,7 +348,7 @@ export class FlowRunner {
 				input = storiesSection + input
 			}
 
-			return input
+			return contextPrefix + input
 		}
 
 		// Subsequent agents get context from previous agents
@@ -340,7 +364,7 @@ export class FlowRunner {
 
 		// The agent's prompt file defines its specific task
 		// No need to inject task descriptions here
-		return context
+		return contextPrefix + context
 	}
 
 	/**
@@ -435,6 +459,50 @@ export class FlowRunner {
 				(answer) => {
 					rl.close()
 					resolve(answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes')
+				}
+			)
+		})
+	}
+
+	/**
+	 * Ask user if they want to clear the context directory after successful flow
+	 * Auto-clears in non-interactive mode
+	 */
+	async _askClearContext() {
+		// Check if context directory exists
+		const contextDir = path.join(process.cwd(), '.flow/context')
+		try {
+			await fs.access(contextDir)
+		} catch {
+			// No context to clear
+			return
+		}
+
+		// Auto-clear in non-interactive mode
+		if (process.env.AUTO_APPROVE === 'true') {
+			console.log(chalk.yellow('[FlowRunner] Auto-clearing context (non-interactive mode)'))
+			await this._clearContext()
+			console.log(chalk.green('✓ Context cleared'))
+			return
+		}
+
+		const rl = readline.createInterface({
+			input: process.stdin,
+			output: process.stdout,
+		})
+
+		return new Promise((resolve) => {
+			rl.question(
+				'\nFlow completed successfully. Clear working context? (y/n): ',
+				async (answer) => {
+					rl.close()
+					if (answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes') {
+						await this._clearContext()
+						console.log(chalk.green('✓ Context cleared'))
+					} else {
+						console.log(chalk.gray('Context preserved in .flow/context/'))
+					}
+					resolve()
 				}
 			)
 		})
@@ -643,6 +711,45 @@ export class FlowRunner {
 			await this.dockerManager.exec(`node --input-type=module -e "${script}"`)
 		} catch (error) {
 			// Ignore cleanup errors
+		}
+	}
+
+	/**
+	 * Save agent output to context directory
+	 * Context is ephemeral working memory for cross-reflow/cross-run learning
+	 */
+	async _saveAgentContext(agentName, content) {
+		if (!content) return
+
+		const contextDir = path.join(process.cwd(), '.flow/context')
+		await fs.mkdir(contextDir, { recursive: true })
+
+		const contextPath = path.join(contextDir, `${agentName}.md`)
+		await fs.writeFile(contextPath, content, 'utf-8')
+	}
+
+	/**
+	 * Load agent output from context directory
+	 * Returns null if no context exists for the agent
+	 */
+	async _loadAgentContext(agentName) {
+		const contextPath = path.join(process.cwd(), '.flow/context', `${agentName}.md`)
+		try {
+			return await fs.readFile(contextPath, 'utf-8')
+		} catch {
+			return null
+		}
+	}
+
+	/**
+	 * Clear the context directory
+	 */
+	async _clearContext() {
+		const contextDir = path.join(process.cwd(), '.flow/context')
+		try {
+			await fs.rm(contextDir, { recursive: true, force: true })
+		} catch {
+			// Directory may not exist, that's fine
 		}
 	}
 }
