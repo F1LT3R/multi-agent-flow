@@ -27,6 +27,7 @@ export default {
 
 	flows: {
 		development: {
+            description: "Develop features with tests."
 			max_flow_runs: 3,
 			ask_before_reflow: true,
 			agents: [

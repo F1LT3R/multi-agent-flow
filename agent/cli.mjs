@@ -5,6 +5,8 @@ import chalk from 'chalk'
 import ora from 'ora'
 import fs from 'fs/promises'
 import path from 'path'
+import { marked } from 'marked'
+import TerminalRenderer from 'marked-terminal'
 import { ConfigLoader } from './core/config-loader.mjs'
 import { FlowRunner } from './core/flow-runner.mjs'
 import { CheckpointManager } from './core/checkpoint-manager.mjs'
@@ -458,6 +460,9 @@ program
 			await configLoader.load()
 			const config = configLoader.getConfig()
 
+			// Build markdown string
+			let markdown = ''
+
 			for (const agent of config.agents) {
 				// Load prompt file
 				const promptFile = agent.prompt_file.split('/').pop()
@@ -472,49 +477,57 @@ program
 					prompt = `[Error loading prompt: ${error.message}]`
 				}
 
-				// Output markdown for each agent
-				console.log(`# ${agent.name}\n`)
+				// Build markdown for each agent
+				markdown += `# ${agent.name}\n\n`
 
-				console.log(`## Settings\n`)
-				console.log(`| Setting | Value |`)
-				console.log(`|---------|-------|`)
-				console.log(`| Model | ${agent.model} |`)
-				console.log(`| Temperature | ${agent.settings?.temperature ?? 'default'} |`)
-				console.log(`| Max Turns | ${agent.max_turns} |`)
+				markdown += `## Settings\n\n`
+				markdown += `| Setting | Value |\n`
+				markdown += `|---------|-------|\n`
+				markdown += `| Model | ${agent.model} |\n`
+				markdown += `| Temperature | ${agent.settings?.temperature ?? 'default'} |\n`
+				markdown += `| Max Turns | ${agent.max_turns} |\n`
 				if (agent.is_gatekeeper) {
-					console.log(`| Gatekeeper | Yes |`)
+					markdown += `| Gatekeeper | Yes |\n`
 				}
-				console.log()
+				markdown += '\n'
 
 				// File constraints
 				if (agent.file_constraints) {
-					console.log(`## File Constraints\n`)
+					markdown += `## File Constraints\n\n`
 					const patterns = agent.file_constraints.write_patterns || []
 					const excludes = agent.file_constraints.exclude_patterns || []
 					if (patterns.length === 0) {
-						console.log(`Read-only (no writes allowed)\n`)
+						markdown += `Read-only (no writes allowed)\n\n`
 					} else {
-						console.log(`Write patterns: ${patterns.map(p => '`' + p + '`').join(', ')}\n`)
+						markdown += `Write patterns: ${patterns.map(p => '`' + p + '`').join(', ')}\n\n`
 						if (excludes.length > 0) {
-							console.log(`Exclude patterns: ${excludes.map(p => '`' + p + '`').join(', ')}\n`)
+							markdown += `Exclude patterns: ${excludes.map(p => '`' + p + '`').join(', ')}\n\n`
 						}
 					}
 				}
 
 				// Tools
-				console.log(`## Tools\n`)
+				markdown += `## Tools\n\n`
 				const tools = agent.mcp_tools?.include || []
 				if (tools.length === 0) {
-					console.log(`None\n`)
+					markdown += `None\n\n`
 				} else {
-					tools.forEach(t => console.log(`- ${t}`))
-					console.log()
+					tools.forEach(t => markdown += `- ${t}\n`)
+					markdown += '\n'
 				}
 
 				// Prompt content
-				console.log(`## Prompt\n`)
-				console.log(prompt)
-				console.log(`\n---\n`)
+				markdown += `## Prompt\n\n`
+				markdown += prompt
+				markdown += `\n\n---\n\n`
+			}
+
+			// Output based on TTY detection
+			if (process.stdout.isTTY) {
+				marked.setOptions({ renderer: new TerminalRenderer() })
+				console.log(marked(markdown))
+			} else {
+				console.log(markdown)
 			}
 		} catch (error) {
 			console.error(chalk.red('Failed to display prompts:'), error.message)
