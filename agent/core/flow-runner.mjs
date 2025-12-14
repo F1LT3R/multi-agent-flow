@@ -400,47 +400,47 @@ export class FlowRunner {
 	 * Display agent summary
 	 */
 	async _displayAgentSummary(result) {
-	console.log(chalk.cyan(`\n--- Agent Summary ---`))
-	console.log(`Turns used: ${result.turns.length}`)
-	console.log(`Success: ${result.success ? chalk.green('✓') : chalk.red('✗')}`)
+		console.log(chalk.cyan.bold(`\n🤖 Agent Summary`))
+		console.log(`${result.success ? '✅' : '❌'} Status: ${result.success ? chalk.green.bold('Success') : chalk.red.bold('Failed')}`)
+		console.log(`🔄 Turns: ${chalk.white.bold(result.turns.length)}`)
 
-	if (result.tokenUsage) {
-		const promptTokens = result.tokenUsage.prompt_tokens || result.tokenUsage.prompt || 0
-		const completionTokens = result.tokenUsage.completion_tokens || result.tokenUsage.completion || 0
-		const totalTokens = result.tokenUsage.total_tokens || result.tokenUsage.total || 0
+		if (result.tokenUsage) {
+			const promptTokens = result.tokenUsage.prompt_tokens || result.tokenUsage.prompt || 0
+			const completionTokens = result.tokenUsage.completion_tokens || result.tokenUsage.completion || 0
+			const totalTokens = result.tokenUsage.total_tokens || result.tokenUsage.total || 0
 
-		console.log(
-			`Tokens: ${promptTokens} in + ${completionTokens} out = ${totalTokens} total`
-		)
+			console.log(
+				`📥 Tokens: ${chalk.white(promptTokens.toLocaleString())} in + ${chalk.white(completionTokens.toLocaleString())} out = ${chalk.white.bold(totalTokens.toLocaleString())} total`
+			)
 
-		// Calculate and display cost
-		const { getCost, getContextPercent } = await import('../data/model-pricing.mjs')
-		const pricingOverrides = this.config.pricing?.overrides || {}
-		const costData = getCost(result.model, promptTokens, completionTokens, pricingOverrides)
+			// Calculate and display cost
+			const { getCost, getContextPercent } = await import('../data/model-pricing.mjs')
+			const pricingOverrides = this.config.pricing?.overrides || {}
+			const costData = getCost(result.model, promptTokens, completionTokens, pricingOverrides)
 
-		// Calculate max context used
-		let maxContextPct = 0
-		if (result.turns) {
-			for (const turn of result.turns) {
-				if (turn.contextPercent > maxContextPct) {
-					maxContextPct = turn.contextPercent
+			// Calculate max context used
+			let maxContextPct = 0
+			if (result.turns) {
+				for (const turn of result.turns) {
+					if (turn.contextPercent > maxContextPct) {
+						maxContextPct = turn.contextPercent
+					}
 				}
+			}
+
+			console.log(
+				`💰 Cost: ${chalk.green('$' + costData.input_cost.toFixed(4))} in + ${chalk.green('$' + costData.output_cost.toFixed(4))} out = ${chalk.green.bold('$' + costData.total_cost.toFixed(4))} total`
+			)
+			if (maxContextPct > 0) {
+				console.log(`📊 Max Context: ${chalk.cyan.bold(maxContextPct.toFixed(1) + '%')}`)
 			}
 		}
 
-		console.log(
-			`Cost: $${costData.input_cost.toFixed(4)} in + $${costData.output_cost.toFixed(4)} out = $${costData.total_cost.toFixed(4)} total`
-		)
-		if (maxContextPct > 0) {
-			console.log(`Max Context: ${maxContextPct.toFixed(1)}%`)
-		}
-	}
-
 		if (result.error) {
-			console.error(chalk.red(`Error: ${result.error}`))
+			console.error(chalk.red(`⚠️  Error: ${result.error}`))
 		}
 
-		console.log(``)
+		console.log('')
 	}
 
 	/**
