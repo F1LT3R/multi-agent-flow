@@ -47,7 +47,7 @@ Added a keep-alive mechanism to prevent the script from exiting:
 listTools()
     .then((tools) => {
         console.log('[Docker MCP Client] Ready to receive commands.')
-        
+
         // Keep the process alive indefinitely
         // The container will be stopped explicitly by the orchestrator
         setInterval(() => {
@@ -108,7 +108,7 @@ docker build --build-arg UID=$(id -u) --build-arg GID=$(id -g) -t multi-agent-fl
 
 ### Before Fix
 ```bash
-agent-flow run "task"
+flow dev "task"
 # [Docker] Container started: agent-flow-xxx
 # [Docker] Failed to start container: Container health check timeout after 30000ms
 
@@ -118,7 +118,7 @@ docker ps -a | grep agent-flow
 
 ### After Fix
 ```bash
-agent-flow run "task"
+flow dev "task"
 # [Docker] Container started: agent-flow-xxx
 # [Docker] Container is running (no health check)
 # Flow proceeds normally...

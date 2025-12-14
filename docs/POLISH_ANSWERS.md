@@ -53,14 +53,14 @@ sequences: {
 
 ### Option B: CLI Flag (Better for CI/CD)
 ```bash
-agent-flow run "..." --auto-approve
+flow dev "..." --auto-approve
 # or
-agent-flow run "..." --yes
+flow dev "..." --yes
 ```
 
 ### Option C: Environment Variable
 ```bash
-AUTO_APPROVE=true agent-flow run "..."
+AUTO_APPROVE=true flow dev "..."
 ```
 
 **Recommended**: Implement Option B (CLI flag) + honor Option A (config).
@@ -102,7 +102,7 @@ if (this.sequence.ask_before_reflow && process.env.AUTO_APPROVE !== 'true') {
 ```
 
 ## Benefit
-- `agent-flow run "..." --yes` for full automation
+- `flow dev "..." --yes` for full automation
 - No more waiting for confirmations
 - Perfect for CI/CD pipelines
 

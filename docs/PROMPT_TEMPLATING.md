@@ -45,11 +45,11 @@ Most placeholders load content from files in `templates/common/`:
 
 `{{INTENT}}` is a special reserved placeholder that is injected dynamically at runtime.
 
-It contains the original user request from the `flow run "intent"` command.
+It contains the original user request from the `flow dev "intent"` command.
 
 **Example:** If the user runs:
 ```bash
-flow run "Build a calculator with add and subtract"
+flow dev "Build a calculator with add and subtract"
 ```
 
 Then `{{INTENT}}` will be replaced with:
@@ -62,7 +62,7 @@ This ensures all agents have context of the original human request, not just the
 ## Lifecycle
 
 1. `flow init` copies `templates/` to `.flow/prompts/` (including `common/`)
-2. `flow run` validates all placeholders resolve before agents start
+2. `flow dev` validates all placeholders resolve before agents start
 3. Each agent prompt is resolved at runtime (edits take effect immediately)
 
 ## Error Handling

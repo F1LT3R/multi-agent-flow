@@ -2,13 +2,13 @@
 
 ## Prerequisites
 
-**Docker is required** - agent-flow runs AI agents in isolated containers for safety.
+**Docker is required** - flow runs AI agents in isolated containers for safety.
 
 1. Install Docker Desktop: https://www.docker.com/products/docker-desktop
 2. Start Docker
 3. Verify: `docker info` should run without errors
 
-Without Docker, agent-flow will exit with an error.
+Without Docker, flow will exit with an error.
 
 ## Test the Calculator Example
 
@@ -18,13 +18,13 @@ mkdir ~/test-calc
 cd ~/test-calc
 
 # 2. Initialize the project
-agent-flow init
+flow init
 
 # 3. Set your API key (if not already in ~/.zshrc or ~/.bashrc)
 export OPENAI_API_KEY=sk-your-key-here
 
 # 4. Run it
-agent-flow run "Build a calculator with add, subtract, multiply, divide"
+flow dev "Build a calculator with add, subtract, multiply, divide"
 
 # 5. Check the output
 ls project/        # Your code
@@ -44,17 +44,20 @@ ls traces/         # Agent execution logs
 
 ```bash
 # Try a different feature
-agent-flow run "Build a todo list app"
+flow dev "Build a todo list app"
 
 # Or iterate on the calculator
-agent-flow run "Add scientific functions to the calculator"
+flow dev "Add scientific functions to the calculator"
+
+# Or run tests only (no new code generation)
+flow test "Fix the failing unit tests"
 ```
 
 ## Skip Reflow Prompts
 
 ```bash
 # Auto-approve reflowing without asking
-agent-flow run "your task" --yes
+flow dev "your task" --yes
 ```
 
 ## Troubleshooting
@@ -63,7 +66,7 @@ agent-flow run "your task" --yes
 
 ```bash
 # Clean up stuck MCP servers
-agent-flow cleanup
+flow cleanup
 ```
 
 This kills any processes still running on ports 3100-3103 from a previous run that didn't shut down cleanly.

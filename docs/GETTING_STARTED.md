@@ -24,7 +24,7 @@ npm link
 ```bash
 mkdir my-app
 cd my-app
-agent-flow init
+flow init
 ```
 
 This creates the project structure and copies prompt templates to `./prompts/`.
@@ -63,23 +63,24 @@ Create a new directory for your project and initialize:
 ```bash
 mkdir my-new-project
 cd my-new-project
-agent-flow init
+flow init
 ```
 
 This creates:
-- `agent-flow.config.mjs` - Configuration file
-- `./project/` - Where agents write code
-- `./tests/` - Permanent test storage
-- `./plans/` - User stories and planning docs
-- `./prompts/` - Agent instruction templates
+- `.flow/flow.config.mjs` - Configuration file
+- `.flow/prompts/` - Agent instruction templates
+- `.flow/checkpoints/` - Resume state
+- `.flow/snapshots/` - Rollback points
+- `.flow/traces/` - Execution logs
+- `.flow/ratchet/` - Blessed artifacts (stories, reports, tests)
 
 ### 5. Customize Prompts (Optional)
 
-The `./prompts/` directory contains instruction files for each agent, copied from the package templates. You can customize these to change agent behavior:
+The `.flow/prompts/` directory contains instruction files for each agent, copied from the package templates. You can customize these to change agent behavior:
 
 ```bash
 # Edit any prompt file
-vim ./prompts/GENERATE_CODE.md
+vim .flow/prompts/GENERATE_CODE.md
 ```
 
 Your customizations are preserved when you update the tool.
@@ -87,7 +88,7 @@ Your customizations are preserved when you update the tool.
 ### 6. Run Your First Flow
 
 ```bash
-agent-flow run "Create a simple calculator CLI that can add, subtract, multiply, and divide"
+flow dev "Create a simple calculator CLI that can add, subtract, multiply, and divide"
 ```
 
 This will:
@@ -106,16 +107,16 @@ Check what was generated:
 
 ```bash
 # View the user stories
-cat ./plans/USER_STORIES_*.md
+cat .flow/ratchet/stories/USER_STORIES.md
 
 # View the generated code
-ls -la ./project/
+ls -la ./
 
 # View the tests
-ls -la ./tests/
+ls -la .flow/ratchet/tests/
 
 # View logs
-cat .agent-flow/logs/session-*.jsonl | jq
+ls -la .flow/traces/
 ```
 
 ## Advanced Usage
@@ -126,24 +127,24 @@ If a flow fails or is interrupted:
 
 ```bash
 # List available checkpoints
-agent-flow list
+flow list
 
 # Resume from specific checkpoint
-agent-flow resume run-2024-11-26-...
+flow resume run-2024-11-26-...
 
 # Or resume from latest
-agent-flow resume
+flow resume
 ```
 
 ### Run Single Agent for Debugging
 
 ```bash
-agent-flow mode GENERATE_CODE "Create a User class with email validation"
+flow mode GENERATE_CODE "Create a User class with email validation"
 ```
 
 ### Customize Configuration
 
-Edit `agent-flow.config.mjs`:
+Edit `.flow/flow.config.mjs`:
 
 ```javascript
 export default {
@@ -198,19 +199,19 @@ Coming soon: Anthropic Claude, Google Gemini, xAI Grok
 ### Simple Todo CLI
 
 ```bash
-agent-flow run "Build a todo list CLI app. Users can add, list, complete, and delete todos. Store in a JSON file."
+flow dev "Build a todo list CLI app. Users can add, list, complete, and delete todos. Store in a JSON file."
 ```
 
 ### REST API
 
 ```bash
-agent-flow run "Create a REST API for a blog. Endpoints: GET /posts, GET /posts/:id, POST /posts, PUT /posts/:id, DELETE /posts/:id. Use Express and store in memory."
+flow dev "Create a REST API for a blog. Endpoints: GET /posts, GET /posts/:id, POST /posts, PUT /posts/:id, DELETE /posts/:id. Use Express and store in memory."
 ```
 
 ### Data Processor
 
 ```bash
-agent-flow run "Create a CSV to JSON converter. Read CSV file, parse it, and output formatted JSON. Handle errors gracefully."
+flow dev "Create a CSV to JSON converter. Read CSV file, parse it, and output formatted JSON. Handle errors gracefully."
 ```
 
 ## Troubleshooting
@@ -218,9 +219,9 @@ agent-flow run "Create a CSV to JSON converter. Read CSV file, parse it, and out
 ### Tests Fail During Flow
 
 The `GENERATE_TESTS` agent will try to fix failing tests automatically (up to MAX_TURNS). If it can't:
-- Check `.agent-flow/logs/` for details
-- Review the generated code in `./project/`
-- Run `agent-flow mode GENERATE_TESTS "Fix the failing tests"` to try again
+- Check `.flow/traces/` for details
+- Review the generated code
+- Run `flow test "Fix the failing tests"` to try again
 
 ### Review Agent Rejects Implementation
 
@@ -254,9 +255,10 @@ MCP_INTERNET_PORT=4103
 ## Next Steps
 
 1. Read the [VISION.md](VISION.md) for architecture details
-2. Customize agent prompts in `./prompts/`
-3. Create custom sequences for your workflow
-4. Contribute improvements via GitHub
+2. Read [DYNAMIC_FLOW_COMMANDS.md](DYNAMIC_FLOW_COMMANDS.md) for flow command options
+3. Customize agent prompts in `.flow/prompts/`
+4. Create custom flows for your workflow
+5. Contribute improvements via GitHub
 
 Happy automating! 🤖
 

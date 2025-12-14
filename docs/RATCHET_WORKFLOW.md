@@ -98,7 +98,7 @@ login.test.mjs     # Contains ALL login tests
 
 ```
 # Run 1: Agent creates calculator tests
-flow run "Build a calculator"
+flow dev "Build a calculator"
 
 # Agent creates:
 #   add-basic.new.test.mjs
@@ -109,7 +109,7 @@ flow run "Build a calculator"
 #   [A] subtract-basic.new.test.mjs → approved, ratcheted
 
 # Run 2: Agent adds edge case tests
-flow run "Add negative number handling"
+flow dev "Add negative number handling"
 
 # Agent creates:
 #   add-negative-numbers.new.test.mjs

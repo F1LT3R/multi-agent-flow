@@ -1,6 +1,6 @@
 # Cost & Metrics System - COMPLETE
 
-**Date**: 2025-11-28  
+**Date**: 2025-11-28
 **Status**: Implemented and ready for testing
 
 ## Summary
@@ -27,10 +27,10 @@ Users can override pricing in `flow.config.mjs`:
 ```javascript
 pricing: {
 	overrides: {
-		'gpt-4o': { 
+		'gpt-4o': {
 			input: 2.00,            // Custom rate
 			output: 8.00,
-			context_window: 128000 
+			context_window: 128000
 		},
 	},
 },
@@ -81,7 +81,7 @@ By Model:
   gpt-4o (4 agents):
     Tokens: 45,230 in + 2,145 out = 47,375 total
     Cost: $0.1131 in + $0.0215 out = $0.1346 total
-  
+
   gpt-4o-mini (3 agents):
     Tokens: 82,456 in + 4,481 out = 86,937 total
     Cost: $0.0124 in + $0.0027 out = $0.0151 total
@@ -167,7 +167,7 @@ By Model:
   gpt-4o (4 agents):
     Tokens: 18,992 in + 892 out = 19,884 total
     Cost: $0.0475 in + $0.0089 out = $0.0564 total
-  
+
   gpt-4o-mini (3 agents):
     Tokens: 28,456 in + 1,481 out = 29,937 total
     Cost: $0.0043 in + $0.0009 out = $0.0052 total
@@ -240,7 +240,7 @@ cd ~/repos/test-agent-flow/test-030
 flow init
 
 # Run a flow and observe cost metrics
-flow run "Create a calculator with add and subtract"
+flow dev "Create a calculator with add and subtract"
 
 # Check trace files for cost data
 cat .flow/logs/traces/YYYY-MM-DD_HH-MM-SS_GENERATE_CODE_r1-t1.md
@@ -304,11 +304,11 @@ export default {
 
 **Backward Compatible**: Old configs with `sequences` still work (merged into `flows`).
 
-### CLI Flag
+### CLI Commands
 
-- Old: `flow run --sequence development "task"`
-- New: `flow run --flow development "task"`
-- Both work (--sequence deprecated but functional)
+- Development flow: `flow dev "task"` or `flow development "task"`
+- Testing flow: `flow test "task"` or `flow testing "task"`
+- See [DYNAMIC_FLOW_COMMANDS.md](DYNAMIC_FLOW_COMMANDS.md) for details
 
 ## Future Enhancements
 

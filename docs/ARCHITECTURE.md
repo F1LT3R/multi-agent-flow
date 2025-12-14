@@ -87,7 +87,7 @@ Traces are **disposable** and not included in snapshots.
 
 ## Order of Operations
 
-When you run `flow run "your task"`:
+When you run `flow dev "your task"`:
 
 1. **Config Loading** - `.flow/flow.config.mjs` is loaded
 2. **Ratchet Preparation** - Ratcheted tests are copied to project root (read-only)

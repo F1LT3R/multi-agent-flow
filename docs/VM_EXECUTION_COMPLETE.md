@@ -141,7 +141,7 @@ Added compatibility methods:
 Before deploying to production:
 
 - [ ] Run `npm test` to verify VM isolation tests pass
-- [ ] Test with simple task: `flow run "Build a calculator"`
+- [ ] Test with simple task: `flow dev "Build a calculator"`
 - [ ] Verify container starts and stays running
 - [ ] Check traces are recorded in `./traces/`
 - [ ] Verify agents can read from `../plans/`

@@ -187,7 +187,7 @@ The following paths are protected from agent access:
 To manually verify isolation is working, you can run the security checks by starting any flow:
 
 ```bash
-npx multi-agent-flow run "test task"
+npx multi-agent-flow dev "test task"
 ```
 
 The security validation box will appear before any agent executes. If you modify the vm-tools to bypass validation, the active escape tests (SEC-03 through SEC-07) will detect the breach and terminate the container.

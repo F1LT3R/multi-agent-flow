@@ -1,6 +1,6 @@
 # VM Streaming - Debugging Stdout Issue
 
-**Date**: 2025-11-28  
+**Date**: 2025-11-28
 **Status**: Debugging - stdout is empty after script execution
 
 ## Problem
@@ -20,7 +20,7 @@ The VM script executes successfully (all 3 turns complete, we see stderr output)
 async function main() {
   try {
     // ... agent execution (lines 8-186) ...
-    
+
     // Store final messages for FlowRunner
     results.messages = messages
 
@@ -52,7 +52,7 @@ This will tell us if the script reaches that point before `console.log()`.
 
 ## Next Test
 
-Run `flow run "Create a calculator"` and check stderr output:
+Run `flow dev "Create a calculator"` and check stderr output:
 
 ### If we SEE the debug message `[VM] Writing JSON result to stdout...`:
 → The script reaches line 189 but line 192 doesn't work
@@ -108,7 +108,7 @@ writeFileSync('/tmp/result.json', JSON.stringify(results))
 
 ## Resolution
 
-**Date**: 2025-11-28  
+**Date**: 2025-11-28
 **Status**: ✅ FIXED
 
 ### Root Cause
