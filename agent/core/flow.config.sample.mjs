@@ -56,6 +56,19 @@ export default {
 				'REPORT',
 			],
 		},
+		webui: {
+			description: 'Generate web designs with iterative refinement.',
+			aliases: ['web', 'ui'],
+			max_flow_runs: 5,
+			ask_before_reflow: true,
+			agents: [
+				'DESIGN_DOC',
+				'RENDER_VIEWS',
+				'PLAN_WORK',
+				'EXECUTE_CODE',
+				'REVIEW_DESIGN',
+			],
+		},
 	},
 
 	agents: [
@@ -199,6 +212,94 @@ export default {
 				write_patterns: [],  // Read-only
 			},
 			prompt_file: './.flow/prompts/REPORT.md',
+		},
+		{
+			name: 'DESIGN_DOC',
+			goal: 'Convert user intent into structured web design document',
+			model: 'mistralai/mistral-large',
+			max_turns: 6,
+			complete_turns: true,
+			settings: {
+				temperature: 0.7,  // Creative design thinking
+			},
+			context_injection: {
+				REVIEW_DESIGN: true,  // Learn from design rejection feedback
+			},
+			mcp_tools: {
+				include: [],  // No tools - pure text transformation
+			},
+			file_constraints: {
+				write_patterns: [],  // No file writes
+			},
+			prompt_file: './.flow/prompts/DESIGN_DOC.md',
+		},
+		{
+			name: 'RENDER_VIEWS',
+			goal: 'Generate visual mockups and wireframes from design document',
+			model: 'google/gemini-3-pro-image-preview',
+			max_turns: 9,
+			settings: {
+				temperature: 0.5,  // Balanced creativity for visual design
+			},
+			mcp_tools: {
+				include: ['list_directory', 'read_file', 'write_file'],
+			},
+			file_constraints: {
+				write_patterns: ['**/*.png', '**/*.jpg', '**/*.svg', '**/*.html'],
+			},
+			prompt_file: './.flow/prompts/RENDER_VIEWS.md',
+		},
+		{
+			name: 'PLAN_WORK',
+			goal: 'Create implementation plan from design and mockups',
+			model: 'mistralai/mistral-large',
+			max_turns: 3,
+			settings: {
+				temperature: 0.4,  // Structured planning
+			},
+			mcp_tools: {
+				include: ['list_directory', 'read_file'],  // Read-only
+			},
+			file_constraints: {
+				write_patterns: [],  // Read-only
+			},
+			prompt_file: './.flow/prompts/PLAN_WORK.md',
+		},
+		{
+			name: 'EXECUTE_CODE',
+			goal: 'Implement the web UI code',
+			model: 'moonshotai/kimi-k2',
+			max_turns: 12,
+			settings: {
+				temperature: 0.2,  // Precise code generation
+			},
+			context_injection: {
+				REVIEW_DESIGN: true,  // Get specific issues to fix from design review
+			},
+			mcp_tools: {
+				include: ['list_directory', 'read_file', 'write_file', 'run_node_tests'],
+			},
+			file_constraints: {
+				write_patterns: ['**/*.html', '**/*.css', '**/*.js', '**/*.jsx', '**/*.json'],
+			},
+			prompt_file: './.flow/prompts/EXECUTE_CODE.md',
+		},
+		{
+			name: 'REVIEW_DESIGN',
+			goal: 'Review implementation against design document',
+			model: 'mistralai/mistral-large',
+			max_turns: 3,
+			is_gatekeeper: true,
+			settings: {
+				temperature: 0.1,  // Very low for deterministic, consistent gatekeeper decisions
+			},
+			mcp_tools: {
+				include: ['list_directory', 'read_file'],  // Read-only
+			},
+			file_constraints: {
+				write_patterns: [],  // Read-only
+			},
+			prompt_file: './.flow/prompts/REVIEW_DESIGN.md',
 		},
 	],
 }

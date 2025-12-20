@@ -1,4 +1,5 @@
 import { OpenAIAdapter } from './openai-adapter.mjs'
+import { OpenRouterAdapter } from './openrouter-adapter.mjs'
 
 /**
  * Factory for creating AI provider adapters
@@ -19,6 +20,13 @@ export class ProviderFactory {
 				throw new Error('OPENAI_API_KEY environment variable is required for OpenAI models')
 			}
 			return new OpenAIAdapter(apiKey, { model })
+		} else if (model.startsWith('openrouter/') || model.includes('/')) {
+			// OpenRouter models - supports any model with provider/model-name format
+			const apiKey = env.OPENROUTER_API_KEY
+			if (!apiKey) {
+				throw new Error('OPENROUTER_API_KEY environment variable is required for OpenRouter models')
+			}
+			return new OpenRouterAdapter(apiKey, { model })
 		} else if (model.startsWith('claude-')) {
 			// Anthropic models (future implementation)
 			throw new Error('Anthropic provider not yet implemented. Coming soon!')
@@ -49,6 +57,19 @@ export class ProviderFactory {
 				name: 'OpenAI',
 				models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o1-preview', 'o1-mini'],
 				envVar: 'OPENAI_API_KEY',
+				supported: true,
+			},
+			{
+				name: 'OpenRouter',
+				models: [
+					'mistralai/mistral-large',
+					'moonshotai/kimi-k2',
+					'google/gemini-3-pro-image-preview',
+					'anthropic/claude-3.5-sonnet',
+					'deepseek/deepseek-r1',
+					'...200+ models',
+				],
+				envVar: 'OPENROUTER_API_KEY',
 				supported: true,
 			},
 			{

@@ -82,6 +82,34 @@ export const MODEL_PRICING = {
 		output: 75.00,
 		context_window: 200000,
 	},
+
+	// OpenRouter models (pricing as of December 2024)
+	// Note: OpenRouter pricing can vary, use config overrides for custom rates
+	'mistralai/mistral-large': {
+		input: 3.00,
+		output: 9.00,
+		context_window: 128000,
+	},
+	'moonshotai/kimi-k2': {
+		input: 0.30,
+		output: 0.30,
+		context_window: 128000,
+	},
+	'google/gemini-3-pro-image-preview': {
+		input: 1.25,
+		output: 5.00,
+		context_window: 1000000,
+	},
+	'anthropic/claude-3.5-sonnet': {
+		input: 3.00,
+		output: 15.00,
+		context_window: 200000,
+	},
+	'deepseek/deepseek-r1': {
+		input: 0.55,
+		output: 2.19,
+		context_window: 64000,
+	},
 }
 
 /**
