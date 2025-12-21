@@ -58,7 +58,7 @@ export default {
 		},
 		webui: {
 			description: 'Generate web designs with iterative refinement.',
-			aliases: ['web', 'ui'],
+			aliases: ['web'],
 			max_flow_runs: 5,
 			ask_before_reflow: true,
 			agents: [
@@ -69,6 +69,15 @@ export default {
 				'REVIEW_DESIGN',
 			],
 		},
+        image: {
+			description: 'Generate image(s) with Google Nano Banana.',
+            aliases: ['images'],
+            max_flow_runs: 1,
+            ask_before_reflow: true,
+            agents: [
+				'GENERATE_IMAGES',
+            ]
+        }
 	},
 
 	agents: [
@@ -221,25 +230,44 @@ export default {
 			complete_turns: true,
 			settings: {
 				temperature: 0.7,  // Creative design thinking
+				max_tokens: 4096,  // Limit output for cost control
 			},
 			context_injection: {
 				REVIEW_DESIGN: true,  // Learn from design rejection feedback
 			},
 			mcp_tools: {
-				include: [],  // No tools - pure text transformation
+				include: ['list_directory', 'read_file'],  // Can explore project structure
 			},
 			file_constraints: {
 				write_patterns: [],  // No file writes
 			},
 			prompt_file: './.flow/prompts/DESIGN_DOC.md',
 		},
+		// RENDER_VIEWS - Visual Design Agent with Image Generation
+		// This agent uses google/gemini-2.5-flash-image which generates actual images.
+		// The modalities parameter enables image output mode.
+		// The extract_images config automatically saves generated images to disk.
+		// Images are validated against file_constraints.write_patterns before saving.
 		{
 			name: 'RENDER_VIEWS',
 			goal: 'Generate visual mockups and wireframes from design document',
-			model: 'google/gemini-3-pro-image-preview',
+			model: 'google/gemini-2.5-flash-image',
+			tool_mode: 'prompt',  // Use prompt-based tools (model doesn't support native tools)
 			max_turns: 9,
-			settings: {
-				temperature: 0.5,  // Balanced creativity for visual design
+		settings: {
+			temperature: 0.5,  // Balanced creativity for visual design
+			max_tokens: 4096,  // Reasonable limit for HTML mockups
+			modalities: ["image", "text"],  // Enable image generation output
+			image_config: {
+				aspect_ratio: "3:4"  // Portrait orientation for web pages (1152x1536)
+			}
+		},
+			// Enable automatic image extraction
+			extract_images: {
+				enabled: true,              // Enable image extraction
+				prefix: 'mockup',           // Filename prefix (mockup-001.png, mockup-002.png)
+				naming: 'sequential',       // 'sequential' | 'turn-based'
+				format: 'png',              // Default format if not detected from data URI
 			},
 			mcp_tools: {
 				include: ['list_directory', 'read_file', 'write_file'],
@@ -256,6 +284,7 @@ export default {
 			max_turns: 3,
 			settings: {
 				temperature: 0.4,  // Structured planning
+				max_tokens: 2048,  // Plans don't need huge outputs
 			},
 			mcp_tools: {
 				include: ['list_directory', 'read_file'],  // Read-only
@@ -272,6 +301,7 @@ export default {
 			max_turns: 12,
 			settings: {
 				temperature: 0.2,  // Precise code generation
+				max_tokens: 4096,  // Reasonable for code generation
 			},
 			context_injection: {
 				REVIEW_DESIGN: true,  // Get specific issues to fix from design review
@@ -292,6 +322,7 @@ export default {
 			is_gatekeeper: true,
 			settings: {
 				temperature: 0.1,  // Very low for deterministic, consistent gatekeeper decisions
+				max_tokens: 1024,  // Reviews are concise
 			},
 			mcp_tools: {
 				include: ['list_directory', 'read_file'],  // Read-only
@@ -301,5 +332,55 @@ export default {
 			},
 			prompt_file: './.flow/prompts/REVIEW_DESIGN.md',
 		},
+
+		{
+			name: 'GENERATE_IMAGES',
+			goal: 'Generate images and visual assets',
+			model: 'google/gemini-2.5-flash-image',
+			tool_mode: 'prompt',  // Use prompt-based tool emulation (no native tools)
+			max_turns: 1,
+			settings: {
+				temperature: 0.7,
+				max_tokens: 4096,
+                modalities: ["image", "text"],      // Enable image generation
+                image_config: {
+                    aspect_ratio: "1:1"              // Or "16:9", "3:4", etc.
+                }
+			},
+            extract_images: {
+                enabled: true,
+                prefix: 'generated',
+                naming: 'sequential',
+                format: 'png',
+            },
+			mcp_tools: {
+				include: [],
+			},
+			file_constraints: {
+				write_patterns: ['**/*.png', '**/*.jpg', '**/*.webp', '**/*.svg'],
+			},
+			prompt_file: './.flow/prompts/GENERATE_IMAGES.md',
+		},
+
+		// Example: Image generation agent using prompt-based tools
+		// Uncomment to add a dedicated image generation agent to your flow
+		// {
+		// 	name: 'GENERATE_IMAGES',
+		// 	goal: 'Generate images and visual assets',
+		// 	model: 'google/gemini-2.5-flash-image',
+		// 	tool_mode: 'prompt',  // Use prompt-based tool emulation (no native tools)
+		// 	max_turns: 6,
+		// 	settings: {
+		// 		temperature: 0.7,
+		// 		max_tokens: 4096,
+		// 	},
+		// 	mcp_tools: {
+		// 		include: ['write_file', 'list_directory', 'read_file'],
+		// 	},
+		// 	file_constraints: {
+		// 		write_patterns: ['**/*.png', '**/*.jpg', '**/*.webp', '**/*.svg'],
+		// 	},
+		// 	prompt_file: './.flow/prompts/GENERATE_IMAGES.md',
+		// },
 	],
 }

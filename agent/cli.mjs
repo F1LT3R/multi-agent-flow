@@ -421,21 +421,6 @@ program
 		// Copy template files to .flow/prompts directory
 		spinner.start('Copying prompt templates...')
 
-		const promptFiles = [
-			'WRITE_USER_STORIES.md',
-			'GENERATE_CODE.md',
-			'PLAN_TESTS.md',
-			'GENERATE_TESTS.md',
-			'REVIEW.md',
-			'CLEAN_AND_REFACTOR.md',
-			'REPORT.md',
-		]
-
-		// Common templates (shared across all agents)
-		const commonFiles = [
-			'SHARED.md',
-		]
-
 		// Determine template source directory
 		// If running from repo, use ./templates
 		// If installed globally, templates are in the package
@@ -451,9 +436,13 @@ program
 			// Ensure common directory exists
 			await fs.mkdir(userCommonDir, { recursive: true })
 
-			// Copy each template file
+			// Copy ALL .md files from templates directory (dynamic discovery)
 			let copiedCount = 0
 			let skippedCount = 0
+			
+			const allFiles = await fs.readdir(templatesDir)
+			const promptFiles = allFiles.filter(f => f.endsWith('.md'))
+			
 			for (const file of promptFiles) {
 				const sourcePath = path.join(templatesDir, file)
 				const destPath = path.join(userPromptsDir, file)
@@ -474,33 +463,36 @@ program
 			}
 
 			// Copy common template files
-			for (const file of commonFiles) {
-				const sourcePath = path.join(templatesDir, 'common', file)
-				const destPath = path.join(userCommonDir, file)
+			try {
+				const commonFiles = await fs.readdir(path.join(templatesDir, 'common'))
+				for (const file of commonFiles.filter(f => f.endsWith('.md'))) {
+					const sourcePath = path.join(templatesDir, 'common', file)
+					const destPath = path.join(userCommonDir, file)
 
-				try {
-					// Check if destination already exists
-					await fs.access(destPath)
-					// File exists, skip
-				} catch {
-					// File doesn't exist, try to copy it
 					try {
-						await fs.copyFile(sourcePath, destPath)
-						copiedCount++
+						// Check if destination already exists
+						await fs.access(destPath)
+						// File exists, skip
 					} catch {
-						// Source doesn't exist, skip silently
+						// File doesn't exist, try to copy it
+						try {
+							await fs.copyFile(sourcePath, destPath)
+							copiedCount++
+						} catch {
+							// Source doesn't exist, skip silently
+						}
 					}
 				}
+			} catch {
+				// common/ directory might not exist, that's fine
 			}
 
-			if (copiedCount === promptFiles.length + commonFiles.length) {
-				spinner.succeed('Prompt templates copied (including common/)')
-			} else if (copiedCount > 0) {
-				spinner.succeed(`Copied ${copiedCount} new prompt templates`)
+			if (copiedCount > 0) {
+				spinner.succeed(`Copied ${copiedCount} prompt template(s)`)
 			} else if (skippedCount > 0) {
 				spinner.info('Prompt templates already exist')
 			} else {
-				spinner.info('No templates to copy (create prompts manually)')
+				spinner.info('No new templates to copy')
 			}
 		} catch {
 			// Templates directory doesn't exist - that's fine, continue

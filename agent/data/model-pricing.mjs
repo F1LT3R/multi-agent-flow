@@ -95,9 +95,19 @@ export const MODEL_PRICING = {
 		output: 0.30,
 		context_window: 128000,
 	},
-	'google/gemini-3-pro-image-preview': {
-		input: 1.25,
-		output: 5.00,
+	'google/gemini-flash-1.5-8b': {
+		input: 0.0375,
+		output: 0.15,
+		context_window: 1000000,
+	},
+	'google/gemini-flash-1.5': {
+		input: 0.075,
+		output: 0.30,
+		context_window: 1000000,
+	},
+	'google/gemini-2.5-flash-image': {
+		input: 0.10,
+		output: 0.40,
 		context_window: 1000000,
 	},
 	'anthropic/claude-3.5-sonnet': {

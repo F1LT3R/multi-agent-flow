@@ -115,12 +115,17 @@ flow run webui "Create a modern dashboard for analytics"
 
 **Agents:**
 1. DESIGN_DOC (Mistral Large) - Create structured design document
-2. RENDER_VIEWS (Gemini Pro Image) - Generate visual mockups
+2. RENDER_VIEWS (Gemini 2.5 Flash Image) - Generate visual mockups with prompt-based tools
 3. PLAN_WORK (Mistral Large) - Plan implementation approach
 4. EXECUTE_CODE (Kimi K2) - Implement the web UI
 5. REVIEW_DESIGN (Mistral Large) - Review and approve/reject (gatekeeper)
 
 **Loop behavior:** If REVIEW_DESIGN rejects, the flow loops back to EXECUTE_CODE with feedback until approved (max 5 runs).
+
+**Estimated cost per run:** ~$0.29 (well under budget!)
+- Worst case with 5 loops: ~$1.45
+
+**Note:** RENDER_VIEWS uses prompt-based tool emulation since the image generation model doesn't support native function calling.
 
 ## Configuration
 
@@ -199,11 +204,12 @@ export OPENROUTER_API_KEY="sk-or-v1-..."
 ```
 
 4. **Popular OpenRouter models:**
-- `mistralai/mistral-large` - Great for reasoning and planning
-- `anthropic/claude-3.5-sonnet` - Excellent for code and analysis
-- `google/gemini-3-pro-image-preview` - Vision capabilities
-- `deepseek/deepseek-r1` - Strong reasoning model
-- `moonshotai/kimi-k2` - Long context support
+- `mistralai/mistral-large` - Great for reasoning and planning ($3/$9 per 1M tokens)
+- `anthropic/claude-3.5-sonnet` - Excellent for code and analysis ($3/$15 per 1M tokens)
+- `google/gemini-flash-1.5` - Fast, supports tools, very affordable ($0.075/$0.30 per 1M tokens)
+- `google/gemini-2.5-flash-image` - Image generation, use with `tool_mode: 'prompt'` ($0.10/$0.40 per 1M tokens)
+- `deepseek/deepseek-r1` - Strong reasoning model ($0.55/$2.19 per 1M tokens)
+- `moonshotai/kimi-k2` - Long context support, very affordable ($0.30/$0.30 per 1M tokens)
 
 See [openrouter.ai/models](https://openrouter.ai/models) for the complete list.
 
@@ -231,6 +237,48 @@ flow snapshot create "description"
 # Rollback to a snapshot
 flow snapshot rollback <snapshot-id>
 ```
+
+## Using Models Without Tool Calling
+
+Some AI models (especially image generation models) don't support native function calling. Use `tool_mode: 'prompt'` to enable prompt-based tool emulation:
+
+```javascript
+{
+  name: 'MY_AGENT',
+  model: 'google/gemini-2.5-flash-image',
+  tool_mode: 'prompt',  // Enable prompt-based tool emulation
+  mcp_tools: {
+    include: ['write_file', 'read_file'],
+  },
+}
+```
+
+### Tool Modes
+
+- **`native`** (default): Use native function calling (standard behavior)
+- **`prompt`**: Force prompt-based tool emulation
+- **`auto`**: Automatically detect - tries native first, falls back to prompt if model doesn't support tools
+
+### How It Works
+
+With prompt-based tools, the agent uses structured text commands instead of function calls:
+
+````markdown
+```WRITE_FILE
+path: mockup-homepage.html
+content:
+<!DOCTYPE html>
+<html>...
+```
+````
+
+The system automatically:
+1. Parses these commands from the model's response
+2. Executes them through the same tool infrastructure
+3. Returns results as a user message
+4. Continues the conversation
+
+This allows **any text-generating model** to use file operations, testing, and other tools!
 
 ## Advanced Features
 

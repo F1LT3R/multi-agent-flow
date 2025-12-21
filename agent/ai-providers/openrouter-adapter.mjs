@@ -32,6 +32,8 @@ export class OpenRouterAdapter extends BaseAIAdapter {
 	 * @param {number} options.top_p - Nucleus sampling (0-1)
 	 * @param {number} options.max_tokens - Max output tokens
 	 * @param {string[]} options.stop - Stop sequences (max 4)
+	 * @param {string[]} options.modalities - Output modalities (e.g., ["image", "text"])
+	 * @param {Object} options.image_config - Image generation config (e.g., {aspect_ratio: "3:4"})
 	 */
 	async createCompletion(messages, tools = [], options = {}) {
 		const model = options.model || this.defaultModel
@@ -56,11 +58,26 @@ export class OpenRouterAdapter extends BaseAIAdapter {
 				if (options.max_tokens !== undefined) {
 					requestParams.max_tokens = options.max_tokens
 				}
-				if (options.stop !== undefined) {
-					requestParams.stop = options.stop
-				}
+			if (options.stop !== undefined) {
+				requestParams.stop = options.stop
+			}
+			if (options.modalities !== undefined) {
+				requestParams.modalities = options.modalities
+			}
+			if (options.image_config !== undefined) {
+				requestParams.image_config = options.image_config
+			}
 
-				// Add tools if provided
+			// Debug: Log image generation parameters
+			if (requestParams.modalities || requestParams.image_config) {
+				console.error('[OpenRouter] Image generation enabled:', {
+					modalities: requestParams.modalities,
+					image_config: requestParams.image_config,
+					model: model
+				})
+			}
+
+			// Add tools if provided
 				if (tools && tools.length > 0) {
 					requestParams.tools = tools.map((tool) => ({
 						type: 'function',
@@ -83,24 +100,38 @@ export class OpenRouterAdapter extends BaseAIAdapter {
 					)
 				}
 
-				const message = response.choices[0].message
+		const message = response.choices[0].message
 
-				// Parse tool calls if present
-				const toolCalls = message.tool_calls
-					? message.tool_calls.map((tc) => ({
-							id: tc.id,
-							name: tc.function.name,
-							arguments: JSON.parse(tc.function.arguments),
-					  }))
-					: []
+		// Parse tool calls if present
+		const toolCalls = message.tool_calls
+			? message.tool_calls.map((tc) => ({
+					id: tc.id,
+					name: tc.function.name,
+					arguments: JSON.parse(tc.function.arguments),
+			  }))
+			: []
 
-				return {
-					content: message.content,
-					toolCalls,
-					finishReason: response.choices[0].finish_reason,
-					usage: response.usage,
-					rawMessage: message,
-				}
+		// Extract multimodal content (text + images)
+		// Check both message.content (array format) and message.images (OpenRouter image generation format)
+		const { textContent, images } = this._extractMultimodalContent(message.content, message.images)
+
+			// Debug: Log if images were received
+			if (requestParams.modalities && images.length === 0) {
+				console.error('[OpenRouter] WARNING: Image generation was requested but no images were returned')
+				console.error('[OpenRouter] Response content type:', typeof message.content)
+				console.error('[OpenRouter] Response has images field:', !!message.images)
+			} else if (images.length > 0) {
+				console.error('[OpenRouter] Successfully received ' + images.length + ' image(s)')
+			}
+
+			return {
+				content: textContent,
+				images: images,
+				toolCalls,
+				finishReason: response.choices[0].finish_reason,
+				usage: response.usage,
+				rawMessage: message,
+			}
 			} catch (error) {
 				lastError = error
 				attempt++
@@ -152,6 +183,12 @@ export class OpenRouterAdapter extends BaseAIAdapter {
 		if (options.stop !== undefined) {
 			requestParams.stop = options.stop
 		}
+		if (options.modalities !== undefined) {
+			requestParams.modalities = options.modalities
+		}
+		if (options.image_config !== undefined) {
+			requestParams.image_config = options.image_config
+		}
 
 		if (tools && tools.length > 0) {
 			requestParams.tools = tools.map((tool) => ({
@@ -176,6 +213,55 @@ export class OpenRouterAdapter extends BaseAIAdapter {
 				}
 			}
 		}
+	}
+
+	/**
+	 * Extract text and images from multimodal content
+	 * OpenRouter returns content as either string or array of content parts
+	 * For image generation, images are in a separate 'images' field
+	 * @param {string|Array} content - Message content from API
+	 * @param {Array} generatedImages - Separate images array from message.images (for image generation)
+	 * @returns {Object} {textContent: string, images: Array}
+	 */
+	_extractMultimodalContent(content, generatedImages = null) {
+		let textContent = ''
+		let images = []
+
+		// Handle text content
+		if (typeof content === 'string') {
+			textContent = content
+		} else if (Array.isArray(content)) {
+			// Multimodal content - array of parts
+			const textParts = []
+			for (const part of content) {
+				if (part.type === 'text') {
+					textParts.push(part.text)
+				} else if (part.type === 'image_url') {
+					images.push({
+						url: part.image_url.url,      // data:image/png;base64,... or https://...
+						detail: part.image_url.detail  // Optional: 'low', 'high', 'auto'
+					})
+				}
+			}
+			textContent = textParts.join('\n')
+		} else {
+			textContent = String(content || '')
+		}
+
+		// Handle generated images (OpenRouter image generation format)
+		// Images come in message.images array with format: [{type: 'image_url', image_url: {url: '...'}}]
+		if (generatedImages && Array.isArray(generatedImages)) {
+			for (const img of generatedImages) {
+				if (img.type === 'image_url' && img.image_url?.url) {
+					images.push({
+						url: img.image_url.url,
+						detail: img.image_url.detail
+					})
+				}
+			}
+		}
+
+		return { textContent, images }
 	}
 
 	/**

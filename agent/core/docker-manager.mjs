@@ -136,14 +136,15 @@ export class DockerManager {
 					`${projectRoot}:/project:rw`,
 				],
 			},
-			Env: [
-				// API Keys only - no MCP ports needed (tools run in VM)
-				`OPENAI_API_KEY=${process.env.OPENAI_API_KEY || ''}`,
-				`ANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY || ''}`,
-				`GOOGLE_AI_API_KEY=${process.env.GOOGLE_AI_API_KEY || ''}`,
-				`XAI_API_KEY=${process.env.XAI_API_KEY || ''}`,
-				`DEEPSEEK_API_KEY=${process.env.DEEPSEEK_API_KEY || ''}`,
-			],
+		Env: [
+			// API Keys only - no MCP ports needed (tools run in VM)
+			`OPENAI_API_KEY=${process.env.OPENAI_API_KEY || ''}`,
+			`OPENROUTER_API_KEY=${process.env.OPENROUTER_API_KEY || ''}`,
+			`ANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY || ''}`,
+			`GOOGLE_AI_API_KEY=${process.env.GOOGLE_AI_API_KEY || ''}`,
+			`XAI_API_KEY=${process.env.XAI_API_KEY || ''}`,
+			`DEEPSEEK_API_KEY=${process.env.DEEPSEEK_API_KEY || ''}`,
+		],
 		}
 
 		try {

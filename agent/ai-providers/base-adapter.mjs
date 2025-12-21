@@ -18,6 +18,12 @@ export class BaseAIAdapter {
 	 * @param {Array} tools - Available tools
 	 * @param {Object} options - Provider-specific options
 	 * @returns {Promise<Object>} Response with message and tool calls
+	 * @property {string} content - Text content from the model
+	 * @property {Array} images - Extracted images (if multimodal model)
+	 * @property {Array} toolCalls - Tool calls made by the model
+	 * @property {string} finishReason - Reason for completion
+	 * @property {Object} usage - Token usage statistics
+	 * @property {Object} rawMessage - Raw API response message
 	 */
 	async createCompletion(messages, tools, options = {}) {
 		throw new Error('createCompletion must be implemented by subclass')

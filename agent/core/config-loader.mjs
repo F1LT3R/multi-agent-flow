@@ -158,6 +158,11 @@ export class ConfigLoader {
 					throw new Error(`Agent '${agent.name}': stop must be an array with max 4 sequences`)
 				}
 			}
+
+			// Validate tool_mode if present
+			if (agent.tool_mode && !['native', 'prompt', 'auto'].includes(agent.tool_mode)) {
+				throw new Error(`Agent '${agent.name}': tool_mode must be 'native', 'prompt', or 'auto'`)
+			}
 		}
 
 		// Validate flows reference valid agents

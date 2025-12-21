@@ -115,8 +115,9 @@ export async function read_file({ path: filePath }) {
  * - Enforces ratchet protection for read-only test files
  * - Enforces file_constraints from agent config
  * - Auto-formats with prettier if installed in project
+ * - Supports binary content via base64 encoding
  */
-export async function write_file({ path: filePath, content }, fileConstraints = null) {
+export async function write_file({ path: filePath, content, encoding = 'utf-8' }, fileConstraints = null) {
 	// Check file constraints BEFORE path validation
 	if (fileConstraints) {
 		const { write_patterns, exclusions } = fileConstraints
@@ -147,6 +148,13 @@ export async function write_file({ path: filePath, content }, fileConstraints = 
 
 	const resolvedPath = await validatePath(filePath, true)
 	await fs.mkdir(path.dirname(resolvedPath), { recursive: true })
+
+	// Handle binary content (base64-encoded)
+	if (encoding === 'base64') {
+		const buffer = Buffer.from(content, 'base64')
+		await fs.writeFile(resolvedPath, buffer)
+		return `File written: ${filePath} (${buffer.length} bytes)`
+	}
 
 	// Try to format with prettier if available in project
 	let finalContent = content
@@ -249,12 +257,13 @@ export const TOOL_DEFINITIONS = [
 	},
 	{
 		name: 'write_file',
-		description: 'Write contents to a file. Tests and code are written directly to project root. PROTECTED: Ratcheted test files (read-only) cannot be modified - create a .new.test.mjs file instead. CANNOT write to: .flow/ directory. Auto-formats with prettier if installed.',
+		description: 'Write contents to a file. Supports text (UTF-8) and binary (base64) content. Tests and code are written directly to project root. PROTECTED: Ratcheted test files (read-only) cannot be modified - create a .new.test.mjs file instead. CANNOT write to: .flow/ directory. Auto-formats text files with prettier if installed.',
 		inputSchema: {
 			type: 'object',
 			properties: {
-				path: { type: 'string', description: 'Relative path for the file, e.g., "calculator.js", "calculator.test.mjs"' },
-				content: { type: 'string', description: 'Content to write' },
+				path: { type: 'string', description: 'Relative path for the file, e.g., "calculator.js", "image.png"' },
+				content: { type: 'string', description: 'Content to write (text or base64-encoded binary)' },
+				encoding: { type: 'string', description: 'Encoding: "utf-8" (default) or "base64" for binary files', default: 'utf-8' },
 			},
 			required: ['path', 'content'],
 		},

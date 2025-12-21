@@ -1,4 +1,5 @@
 import path from 'path'
+import { minimatch } from 'minimatch'
 
 /**
  * Docker Agent Executor
@@ -161,12 +162,13 @@ export class DockerAgentExecutor {
 		const escapedPricing = JSON.stringify(this.options.pricingOverrides || {})
 
 		return `
-import { ProviderFactory } from '/workspace/agent/ai-providers/provider-factory.mjs'
+import { ProviderFactory, modelSupportsTools } from '/workspace/agent/ai-providers/provider-factory.mjs'
 import { callTool, getToolDefinitions } from '/workspace/agent/vm-tools/index.mjs'
 import { getCost, getContextWindow, getContextPercent } from '/workspace/agent/data/model-pricing.mjs'
 import fs from 'fs/promises'
 import { writeFileSync } from 'fs'
 import path from 'path'
+import { minimatch } from 'minimatch'
 
 // Resolve template placeholders like {{SHARED}} and {{INTENT}}
 async function resolveTemplatePlaceholders(content, templateDir, userIntent) {
@@ -313,6 +315,48 @@ function writeTrace(agentName, flowRun, turn, data) {
 	writeFileSync(filename, parts.join('\\n'))
 }
 
+// Generate image filename based on naming strategy
+function generateImageFilename(prefix, naming, turn, index, format) {
+	if (naming === 'sequential') {
+		const num = String(turn * 100 + index + 1).padStart(3, '0')
+		return prefix + '-' + num + '.' + format
+	} else if (naming === 'turn-based') {
+		return prefix + '-t' + turn + '-' + index + '.' + format
+	}
+	// Default: sequential
+	const num = String(turn * 100 + index + 1).padStart(3, '0')
+	return prefix + '-' + num + '.' + format
+}
+
+// Check if file is allowed by constraints
+function isFileAllowed(filename, constraints) {
+	if (!constraints || !constraints.write_patterns) return true
+	if (constraints.write_patterns.length === 0) return false
+
+	// Use minimatch to check patterns
+	return constraints.write_patterns.some(pattern => minimatch(filename, pattern))
+}
+
+// Get image buffer from URL or base64
+async function getImageBuffer(url) {
+	if (url.startsWith('data:')) {
+		// Extract base64 data
+		const match = url.match(/^data:image\\/[^;]+;base64,(.+)$/)
+		if (match) {
+			return Buffer.from(match[1], 'base64')
+		}
+		throw new Error('Invalid data URI format')
+	} else if (url.startsWith('http')) {
+		// Download from URL
+		const response = await fetch(url)
+		if (!response.ok) {
+			throw new Error('Failed to download image: ' + response.status)
+		}
+		return Buffer.from(await response.arrayBuffer())
+	}
+	throw new Error('Unsupported image URL format: ' + url.substring(0, 50) + '...')
+}
+
 // Wrap everything in try-catch to ensure JSON output even on error
 async function main() {
 	try {
@@ -370,6 +414,20 @@ async function main() {
 		// Note: Provider handles conversion to OpenAI format
 		const tools = getToolDefinitions(agentConfig.mcp_tools)
 
+		// Determine tool mode (native, prompt, or auto)
+		const toolMode = agentConfig.tool_mode || 'native'
+		const usePromptTools = toolMode === 'prompt' ||
+			(toolMode === 'auto' && tools.length > 0 && !modelSupportsTools(agentConfig.model))
+
+		// If using prompt-based tools, inject instructions into system prompt
+		if (usePromptTools && tools.length > 0) {
+			const { injectToolInstructions } = await import('/workspace/agent/vm-tools/prompt-tool-instructions.mjs')
+			systemPrompt = await injectToolInstructions(systemPrompt, tools, '/project/.flow/prompts')
+			console.error('[Tool Mode] Using prompt-based tool emulation')
+			// Update system message
+			messages[0].content = systemPrompt
+		}
+
 		// Result accumulator
 		const results = {
 			success: false,
@@ -390,19 +448,65 @@ async function main() {
 				console.error('[Turn ' + turnCount + '/' + agentConfig.max_turns + ']')
 
 				// Call AI provider with settings from agent config
-				const response = await provider.createCompletion(messages, tools, agentConfig.settings || {})
+				// For prompt-based tools, pass empty tools array
+				const response = await provider.createCompletion(
+					messages,
+					usePromptTools ? [] : tools,
+					agentConfig.settings || {}
+				)
 
-				// Accumulate token usage
-				if (response.usage) {
-					results.tokenUsage.prompt_tokens += response.usage.prompt_tokens || 0
-					results.tokenUsage.completion_tokens += response.usage.completion_tokens || 0
-					results.tokenUsage.total_tokens += response.usage.total_tokens || 0
-				}
+			// Accumulate token usage
+			if (response.usage) {
+				results.tokenUsage.prompt_tokens += response.usage.prompt_tokens || 0
+				results.tokenUsage.completion_tokens += response.usage.completion_tokens || 0
+				results.tokenUsage.total_tokens += response.usage.total_tokens || 0
+			}
 
-				// Log agent thinking to stderr for real-time visibility
-				if (response.content && response.content.trim()) {
-					console.error(response.content)
+			// Handle extracted images if present
+			if (response.images && response.images.length > 0 && agentConfig.extract_images?.enabled) {
+				console.error('[Image Extraction] Processing ' + response.images.length + ' image(s)...')
+
+				for (let i = 0; i < response.images.length; i++) {
+					const image = response.images[i]
+
+					try {
+						// Generate filename
+						const filename = generateImageFilename(
+							agentConfig.extract_images.prefix || 'generated-image',
+							agentConfig.extract_images.naming || 'sequential',
+							turnCount,
+							i,
+							agentConfig.extract_images.format || 'png'
+						)
+
+						// Check file constraints
+						if (!isFileAllowed(filename, agentConfig.file_constraints)) {
+							console.error('⚠️  Skipping ' + filename + ' - not allowed by file_constraints')
+							continue
+						}
+
+						// Decode/download image
+						const imageBuffer = await getImageBuffer(image.url)
+
+						// Write to container via write_file tool
+						const { callTool } = await import('/workspace/agent/vm-tools/index.mjs')
+						await callTool('write_file', {
+							path: filename,
+							content: imageBuffer.toString('base64'),
+							encoding: 'base64'
+						}, agentConfig)
+
+						console.error('🖼️  Saved image: ' + filename + ' (' + Math.round(imageBuffer.length / 1024) + ' KB)')
+					} catch (error) {
+						console.error('✗ Failed to save image ' + i + ': ' + error.message)
+					}
 				}
+			}
+
+			// Log agent thinking to stderr for real-time visibility
+			if (response.content && response.content.trim()) {
+				console.error(response.content)
+			}
 
 				// Add assistant message
 				messages.push({
@@ -456,7 +560,49 @@ async function main() {
 				}
 			}
 
-			// Execute tool calls if present
+			// Handle prompt-based tools if enabled
+			if (usePromptTools && response.content) {
+				const { parseToolCommands, executeToolCommands, formatToolResults } = await import('/workspace/agent/vm-tools/prompt-tool-parser.mjs')
+				const commands = parseToolCommands(response.content)
+
+				if (commands.length > 0) {
+					console.error('\\n[Prompt Tools] Detected ' + commands.length + ' command(s)')
+
+					// Execute commands
+					const commandResults = await executeToolCommands(commands, agentConfig)
+
+					// Log commands for visibility
+					for (const cmd of commands) {
+						console.error('🔧 ' + cmd.name + '(' + JSON.stringify(cmd.args).substring(0, 50) + '...)')
+					}
+
+					// Store in turn result (format like native tool calls)
+					turnResult.toolCalls = commands.map(cmd => ({
+						name: cmd.name,
+						arguments: cmd.args,
+						mode: 'prompt'
+					}))
+
+					turnResult.toolResults = commandResults.map(r => ({
+						tool: r.command,
+						success: r.success,
+						result: r.success ? r.result : undefined,
+						error: r.success ? undefined : r.error
+					}))
+
+					// Add results as user message
+					messages.push({
+						role: 'user',
+						content: formatToolResults(commandResults)
+					})
+
+					// Continue to next turn to process results
+					results.turns.push(turnResult)
+					continue
+				}
+			}
+
+			// Execute tool calls if present (native tool calling)
 				if (response.toolCalls && response.toolCalls.length > 0) {
 					for (let i = 0; i < response.toolCalls.length; i++) {
 						const toolCall = response.toolCalls[i]

@@ -74,24 +74,28 @@ export class OpenAIAdapter extends BaseAIAdapter {
 					)
 				}
 
-				const message = response.choices[0].message
+			const message = response.choices[0].message
 
-				// Parse tool calls if present
-				const toolCalls = message.tool_calls
-					? message.tool_calls.map((tc) => ({
-							id: tc.id,
-							name: tc.function.name,
-							arguments: JSON.parse(tc.function.arguments),
-					  }))
-					: []
+			// Parse tool calls if present
+			const toolCalls = message.tool_calls
+				? message.tool_calls.map((tc) => ({
+						id: tc.id,
+						name: tc.function.name,
+						arguments: JSON.parse(tc.function.arguments),
+				  }))
+				: []
 
-				return {
-					content: message.content,
-					toolCalls,
-					finishReason: response.choices[0].finish_reason,
-					usage: response.usage,
-					rawMessage: message,
-				}
+			// Extract multimodal content (text + images)
+			const { textContent, images } = this._extractMultimodalContent(message.content)
+
+			return {
+				content: textContent,
+				images: images,
+				toolCalls,
+				finishReason: response.choices[0].finish_reason,
+				usage: response.usage,
+				rawMessage: message,
+			}
 			} catch (error) {
 				lastError = error
 				attempt++
@@ -167,6 +171,44 @@ export class OpenAIAdapter extends BaseAIAdapter {
 				}
 			}
 		}
+	}
+
+	/**
+	 * Extract text and images from multimodal content
+	 * OpenAI returns content as either string or array of content parts
+	 * @param {string|Array} content - Message content from API
+	 * @returns {Object} {textContent: string, images: Array}
+	 */
+	_extractMultimodalContent(content) {
+		// Simple string content - no images
+		if (typeof content === 'string') {
+			return { textContent: content, images: [] }
+		}
+
+		// Multimodal content - array of parts
+		if (Array.isArray(content)) {
+			const textParts = []
+			const images = []
+
+			for (const part of content) {
+				if (part.type === 'text') {
+					textParts.push(part.text)
+				} else if (part.type === 'image_url') {
+					images.push({
+						url: part.image_url.url,      // data:image/png;base64,... or https://...
+						detail: part.image_url.detail  // Optional: 'low', 'high', 'auto'
+					})
+				}
+			}
+
+			return {
+				textContent: textParts.join('\n'),
+				images
+			}
+		}
+
+		// Fallback for unexpected format
+		return { textContent: String(content || ''), images: [] }
 	}
 
 	/**

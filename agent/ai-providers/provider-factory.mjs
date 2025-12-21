@@ -13,20 +13,28 @@ export class ProviderFactory {
 	 */
 	static create(model, env = process.env) {
 		// Determine provider from model name
-		if (model.startsWith('gpt-') || model.startsWith('o1-')) {
-			// OpenAI models
-			const apiKey = env.OPENAI_API_KEY
-			if (!apiKey) {
-				throw new Error('OPENAI_API_KEY environment variable is required for OpenAI models')
-			}
-			return new OpenAIAdapter(apiKey, { model })
-		} else if (model.startsWith('openrouter/') || model.includes('/')) {
+		// Check OpenRouter first (uses provider/model-name format with slash)
+		if (model.includes('/')) {
 			// OpenRouter models - supports any model with provider/model-name format
 			const apiKey = env.OPENROUTER_API_KEY
 			if (!apiKey) {
 				throw new Error('OPENROUTER_API_KEY environment variable is required for OpenRouter models')
 			}
 			return new OpenRouterAdapter(apiKey, { model })
+		} else if (model.startsWith('gpt-') || model.startsWith('o1-')) {
+			// OpenAI models
+			const apiKey = env.OPENAI_API_KEY
+			if (!apiKey) {
+				throw new Error('OPENAI_API_KEY environment variable is required for OpenAI models')
+			}
+			return new OpenAIAdapter(apiKey, { model })
+		} else if (model.startsWith('deepseek-')) {
+			// DeepSeek models - uses OpenAI-compatible API
+			const apiKey = env.DEEPSEEK_API_KEY
+			if (!apiKey) {
+				throw new Error('DEEPSEEK_API_KEY environment variable is required for DeepSeek models')
+			}
+			return new OpenAIAdapter(apiKey, { model, baseUrl: 'https://api.deepseek.com/v1' })
 		} else if (model.startsWith('claude-')) {
 			// Anthropic models (future implementation)
 			throw new Error('Anthropic provider not yet implemented. Coming soon!')
@@ -36,16 +44,32 @@ export class ProviderFactory {
 		} else if (model.startsWith('grok-')) {
 			// xAI models (future implementation)
 			throw new Error('xAI/Grok provider not yet implemented. Coming soon!')
-		} else if (model.startsWith('deepseek-')) {
-			// DeepSeek models - uses OpenAI-compatible API
-			const apiKey = env.DEEPSEEK_API_KEY
-			if (!apiKey) {
-				throw new Error('DEEPSEEK_API_KEY environment variable is required for DeepSeek models')
-			}
-			return new OpenAIAdapter(apiKey, { model, baseUrl: 'https://api.deepseek.com/v1' })
 		} else {
 			throw new Error(`Unknown model: ${model}. Cannot determine provider.`)
 		}
+	}
+
+	/**
+	 * Check if a model supports native tool calling
+	 * @param {string} model - Model identifier
+	 * @returns {boolean}
+	 */
+	static modelSupportsTools(model) {
+		// Models known to NOT support tools
+		const noToolSupport = [
+			/gemini-.*-image/,  // Image generation models
+			/dall-e/,
+			/stable-diffusion/,
+		]
+
+		for (const pattern of noToolSupport) {
+			if (pattern.test(model)) {
+				return false
+			}
+		}
+
+		// Most modern models support tools
+		return true
 	}
 
 	/**
@@ -98,5 +122,14 @@ export class ProviderFactory {
 			},
 		]
 	}
+}
+
+/**
+ * Standalone export for modelSupportsTools
+ * @param {string} model - Model identifier
+ * @returns {boolean}
+ */
+export function modelSupportsTools(model) {
+	return ProviderFactory.modelSupportsTools(model)
 }
 
