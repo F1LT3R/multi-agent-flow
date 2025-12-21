@@ -128,7 +128,10 @@ async function runFlow(flowName, description, options) {
 		console.log(chalk.cyan('Tools will run inside Docker VM...\n'))
 
 		// Run the flow
-		const runner = new FlowRunner(config, flowName)
+		const runner = new FlowRunner(config, flowName, {
+			noHud: options.noHud || false,
+			hudSpeed: options.hudSpeed || 'medium'
+		})
 		const result = await runner.run(description)
 
 		// Calculate detailed metrics by model
@@ -359,6 +362,8 @@ async function registerFlowCommands() {
 			.option('-y, --yes', 'Auto-approve all prompts (non-interactive)')
 			.option('--auto-approve', 'Alias for --yes')
 			.option('--clear-context', 'Clear working context before starting (fresh run)')
+			.option('--no-hud', 'Disable realtime HUD display')
+			.option('--hud-speed <speed>', 'Stream animation speed (slow|medium|fast|veryfast)', 'medium')
 			.action(async (description, options) => {
 				await runFlow(flowName, description, options)
 			})
@@ -439,10 +444,10 @@ program
 			// Copy ALL .md files from templates directory (dynamic discovery)
 			let copiedCount = 0
 			let skippedCount = 0
-			
+
 			const allFiles = await fs.readdir(templatesDir)
 			const promptFiles = allFiles.filter(f => f.endsWith('.md'))
-			
+
 			for (const file of promptFiles) {
 				const sourcePath = path.join(templatesDir, file)
 				const destPath = path.join(userPromptsDir, file)
@@ -552,11 +557,14 @@ program
 			// Tools run directly inside Docker VM - no HTTP servers needed!
 			console.log(chalk.cyan('Tools will run inside Docker VM...\n'))
 
-			// Resume the flow
-			const state = await checkpointManager.load(runId)
-			const defaultFlow = config.default_flow || 'development'
-			const runner = new FlowRunner(config, state.flowName || state.sequenceName || defaultFlow)
-			const result = await runner.run(state.userInput, runId)
+		// Resume the flow
+		const state = await checkpointManager.load(runId)
+		const defaultFlow = config.default_flow || 'development'
+		const runner = new FlowRunner(config, state.flowName || state.sequenceName || defaultFlow, {
+			noHud: false, // Enable HUD by default for resume
+			hudSpeed: 'medium'
+		})
+		const result = await runner.run(state.userInput, runId)
 
 			console.log(chalk.green.bold('\n✅ Flow resumed and completed!'))
 

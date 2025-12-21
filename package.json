@@ -19,11 +19,13 @@
     "cors": "^2.8.5",
     "dockerode": "^4.0.2",
     "express": "^4.18.2",
+    "ink": "^4.4.1",
     "marked": "^11.0.0",
     "marked-terminal": "^7.0.0",
     "minimatch": "^10.0.1",
     "openai": "^4.20.0",
-    "ora": "^8.0.1"
+    "ora": "^8.0.1",
+    "react": "^18.2.0"
   },
   "engines": {
     "node": ">=18.0.0"

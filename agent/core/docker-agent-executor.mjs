@@ -20,6 +20,7 @@ export class DockerAgentExecutor {
 		this.options = options
 		this.flowRunCount = options.flowRunCount || 1
 		this.callbacks = options.callbacks || {}
+		this.hudManager = options.hudManager || null
 		this.messages = []
 		this.totalTokenUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
 	}
@@ -98,6 +99,17 @@ export class DockerAgentExecutor {
 				} else {
 					// Agent thinking/markdown content - accumulate
 					agentOutput += line + '\n'
+
+					// Feed to HUD as outgoing stream (agent output)
+					if (this.hudManager?.isEnabled()) {
+						this.hudManager.onStreamOut(line)
+					}
+				}
+			},
+			onStdout: (chunk) => {
+				// Feed to HUD as incoming stream (raw JSON result)
+				if (this.hudManager?.isEnabled()) {
+					this.hudManager.onStreamIn(chunk)
 				}
 			}
 			}

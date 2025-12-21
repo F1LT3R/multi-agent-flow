@@ -28,6 +28,15 @@ export default {
 		},
 	},
 
+	ui: {
+		hud: {
+			enabled: true,              // Enable realtime HUD (can be disabled with --no-hud or FLOW_DISABLE_HUD=true)
+			width: 45,                  // HUD width in characters
+			streamSpeed: 'medium',      // Stream animation speed: slow|medium|fast|veryfast
+			updateInterval: 100,        // Milliseconds between HUD updates
+		},
+	},
+
 	flows: {
 		development: {
 			description: 'Develop features with tests.',

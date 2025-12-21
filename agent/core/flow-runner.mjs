@@ -4,6 +4,7 @@ import { DockerManager } from './docker-manager.mjs'
 import { Ratchet } from './ratchet.mjs'
 import { SnapshotManager } from './snapshot-manager.mjs'
 import { promptForApproval } from './diff-approval.mjs'
+import { HUDManager } from './hud-manager.mjs'
 import readline from 'readline'
 import chalk from 'chalk'
 import fs from 'fs/promises'
@@ -14,10 +15,11 @@ import path from 'path'
  * Orchestrates the agent flow with reflow logic
  */
 export class FlowRunner {
-	constructor(config, flowName = 'development') {
+	constructor(config, flowName = 'development', options = {}) {
 		this.config = config
 		this.flowName = flowName
 		this.flow = config.flows[flowName]
+		this.options = options
 
 		if (!this.flow) {
 			throw new Error(`Flow '${flowName}' not found in configuration`)
@@ -26,6 +28,15 @@ export class FlowRunner {
 		this.checkpointManager = new CheckpointManager('./.flow/checkpoints')
 		this.dockerManager = new DockerManager(config)
 		this.ratchet = new Ratchet()
+
+		// Initialize HUD Manager
+		const hudConfig = config.ui?.hud || {}
+		this.hudManager = new HUDManager({
+			width: hudConfig.width || 45,
+			streamSpeed: options.hudSpeed || hudConfig.streamSpeed || 'medium',
+			updateInterval: hudConfig.updateInterval || 100,
+			disabled: options.noHud || false
+		})
 
 		this.state = {
 			flowName,
@@ -111,6 +122,15 @@ export class FlowRunner {
 
 		console.log(chalk.blue.bold(`[FlowRunner] Starting flow: ${this.flowName}`))
 		console.log(chalk.blue(`[FlowRunner] Run ID: ${runId}`))
+
+		// Initialize HUD if enabled (check TTY and env vars)
+		const hudEnabled = !this.options.noHud &&
+		                   process.env.FLOW_DISABLE_HUD !== 'true' &&
+		                   process.stdout.isTTY
+
+		if (hudEnabled) {
+			await this.hudManager.initialize(this.flow, this.config.agents)
+		}
 
 		// Prepare ratchet (copy tests, read stories) BEFORE Docker starts
 		const isNewRun = !runId || this.state.flowRunCount === 0
@@ -213,6 +233,11 @@ export class FlowRunner {
 				reason: 'max_flow_runs_exceeded',
 			}
 		} finally {
+			// Clean up HUD
+			if (this.hudManager.isEnabled()) {
+				await this.hudManager.destroy()
+			}
+
 			// Stop Docker container
 			// On failure: keep container for investigation
 			// On success: clean up container
@@ -249,10 +274,17 @@ export class FlowRunner {
 				throw new Error(`Agent '${agentName}' not found in configuration`)
 			}
 
-			console.log(chalk.blue(`\n${'='.repeat(60)}`))
-			console.log(chalk.blue.bold(`Agent: ${agentName}`))
-			console.log(chalk.blue(`Goal: ${agentConfig.goal}`))
-			console.log(chalk.blue(`${'='.repeat(60)}\n`))
+		console.log(chalk.blue(`\n${'='.repeat(60)}`))
+		console.log(chalk.blue.bold(`Agent: ${agentName}`))
+		console.log(chalk.blue(`Goal: ${agentConfig.goal}`))
+		console.log(chalk.blue(`${'='.repeat(60)}\n`))
+
+		// Notify HUD that agent is starting
+		if (this.hudManager.isEnabled()) {
+			this.hudManager.onAgentStart(agentName)
+		}
+
+		const agentStartTime = Date.now()
 
 		// Prepare input for agent (includes context injection)
 		const agentInput = await this._prepareAgentInput(agentName, i)
@@ -267,6 +299,7 @@ export class FlowRunner {
 				tracesDir: './.flow/traces',
 				callbacks: this._createCallbacks(agentName),
 				pricingOverrides: this.config.pricing?.overrides || {},
+				hudManager: this.hudManager, // Pass HUD manager to executor
 			}
 		)
 		const result = await executor.execute(agentInput)
@@ -275,6 +308,25 @@ export class FlowRunner {
 			result.agentName = agentName
 			result.tokenUsage = executor.getTokenUsage()
 			this.state.agentResults.push(result)
+
+			// Notify HUD that agent is complete
+			if (this.hudManager.isEnabled()) {
+				const { getCost } = await import('../data/model-pricing.mjs')
+				const pricingOverrides = this.config.pricing?.overrides || {}
+				const tokenUsage = result.tokenUsage || {}
+				const costData = getCost(
+					agentConfig.model,
+					tokenUsage.prompt_tokens || 0,
+					tokenUsage.completion_tokens || 0,
+					pricingOverrides
+				)
+
+				this.hudManager.onAgentComplete(agentName, {
+					turns: result.turns?.length || 0,
+					cost: costData.total_cost || 0,
+					time: (Date.now() - agentStartTime) / 1000
+				})
+			}
 
 			// Save agent output to context for cross-reflow/cross-run learning
 			await this._saveAgentContext(agentName, result.finalMessage)
